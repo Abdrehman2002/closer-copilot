@@ -1,7 +1,7 @@
-// closer-copilot — live sales whisper server with deal memory (multi-user)
+// closer-copilot — live sales whisper server with deal memory (multi-user SaaS)
 // Auth: Supabase (email/password). Every API call and WebSocket carries the user's JWT.
 // Storage: Supabase Postgres with row-level security — users only ever see their own data.
-// Call state (transcript, active deal/product, coach loop) is per-user session in memory.
+// Call state (transcript, active deal/product, coach loop, fired cards) is per-user session.
 'use strict';
 
 const http = require('http');
@@ -117,8 +117,8 @@ function getSession(userId) {
   if (!s) {
     s = {
       userId, jwt: null,
-      turns: [], events: new Set(), callLog: null,
-      activeDealId: null, activeProductId: null,
+      turns: [], cards: [], events: new Set(), callLog: null, callStartAt: 0,
+      activeDealId: null, activeProductId: null, activeProductName: '',
       productContent: '', memory: '', dealState: null, dealName: '',
       lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
       simIdx: 0
@@ -244,6 +244,7 @@ async function coach(s) {
       s.lastCardAt = Date.now();
       const card = { type: 'card-stream', tone: p.tone || '', line: p.line, why: p.why || '', technique: p.tech || '', done: true };
       broadcast(s, card);
+      s.cards.push({ at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique });
       logEvent(s, { type: 'card', tone: card.tone, line: card.line, why: card.why, technique: card.technique });
       console.log('[coach]', s.userId.slice(0, 8), 'FIRE:', p.line);
     } else {
@@ -332,88 +333,134 @@ const server = http.createServer(async (req, res) => {
   const urlPath = req.url.split('?')[0];
 
   try {
-    // -- public config for the frontend --
     if (urlPath === '/api/config' && req.method === 'GET') {
       return sendJson(res, { url: SUPA_URL, key: SUPA_KEY });
     }
 
-    // -- everything under /api and /simulate requires auth --
     if (urlPath.startsWith('/api/') || urlPath === '/simulate') {
       const jwt = bearer(req);
       const user = await getUser(jwt);
       if (!user) return sendJson(res, { error: 'not signed in' }, 401);
       const s = getSession(user.id);
       s.jwt = jwt;
+      const seg = urlPath.split('/').filter(Boolean);   // e.g. ['api','clients','<id>']
 
-      if (urlPath === '/api/state' && req.method === 'GET') {
+      // ---- products ----
+      if (urlPath === '/api/products' && req.method === 'GET') {
         let products = await sbRest('products?select=id,name&order=created_at', jwt);
         if (!products.length) {
           products = (await sbRest('products', jwt, {
-            method: 'POST',
-            body: { user_id: user.id, name: 'My product', content: PRODUCT_TEMPLATE }
+            method: 'POST', body: { user_id: user.id, name: 'My product', content: PRODUCT_TEMPLATE }
           })).map(p => ({ id: p.id, name: p.name }));
         }
-        const deals = await sbRest('deals?select=id,name,company,calls(count)&order=created_at', jwt);
-        if (!s.activeProductId) s.activeProductId = products[0].id;
-        return sendJson(res, {
-          products,
-          deals: deals.map(d => ({ id: d.id, name: d.name, company: d.company, calls: (d.calls && d.calls[0] && d.calls[0].count) || 0 })),
-          activeProductId: s.activeProductId, activeDealId: s.activeDealId,
-          email: user.email
-        });
+        return sendJson(res, { products, activeProductId: s.activeProductId });
       }
-
       if (urlPath === '/api/products' && req.method === 'POST') {
         const { id, name, content } = await readBody(req);
         if (!name) return sendJson(res, { error: 'name required' }, 400);
         let row;
-        if (id) {
-          row = (await sbRest('products?id=eq.' + id, jwt, { method: 'PATCH', body: { name, content } }))[0];
-        } else {
-          row = (await sbRest('products', jwt, { method: 'POST', body: { user_id: user.id, name, content: content || '' } }))[0];
-        }
+        if (id) row = (await sbRest('products?id=eq.' + id, jwt, { method: 'PATCH', body: { name, content } }))[0];
+        else row = (await sbRest('products', jwt, { method: 'POST', body: { user_id: user.id, name, content: content || '' } }))[0];
         if (s.activeProductId === row.id) s.productContent = row.content;
         return sendJson(res, { ok: true, product: { id: row.id, name: row.name } });
       }
-
-      if (urlPath === '/api/product-content' && req.method === 'GET') {
-        const id = new URL(req.url, 'http://x').searchParams.get('id');
-        const rows = await sbRest('products?id=eq.' + id + '&select=id,name,content', jwt);
+      if (seg[0] === 'api' && seg[1] === 'products' && seg[2] && req.method === 'GET') {
+        const rows = await sbRest('products?id=eq.' + seg[2] + '&select=id,name,content', jwt);
         return sendJson(res, rows[0] || {});
       }
-
+      if (seg[0] === 'api' && seg[1] === 'products' && seg[2] && req.method === 'DELETE') {
+        await sbRest('products?id=eq.' + seg[2], jwt, { method: 'DELETE' });
+        return sendJson(res, { ok: true });
+      }
       if (urlPath === '/api/product' && req.method === 'POST') {
         const { id } = await readBody(req);
         s.activeProductId = id;
         return sendJson(res, { ok: true });
       }
 
-      if (urlPath === '/api/deals' && req.method === 'POST') {
+      // ---- clients (deals) ----
+      if (urlPath === '/api/clients' && req.method === 'GET') {
+        const deals = await sbRest('deals?select=id,name,company,status,created_at,calls(count)&order=created_at.desc', jwt);
+        return sendJson(res, {
+          clients: deals.map(d => ({
+            id: d.id, name: d.name, company: d.company, status: d.status,
+            calls: (d.calls && d.calls[0] && d.calls[0].count) || 0, created_at: d.created_at
+          }))
+        });
+      }
+      if (urlPath === '/api/clients' && req.method === 'POST') {
         const { name, company } = await readBody(req);
         if (!name) return sendJson(res, { error: 'name required' }, 400);
         const row = (await sbRest('deals', jwt, {
           method: 'POST',
           body: { user_id: user.id, name, company: company || '', product_id: s.activeProductId, state: EMPTY_STATE() }
         }))[0];
-        s.activeDealId = row.id;
-        return sendJson(res, { ok: true, deal: { id: row.id, name: row.name, company: row.company, calls: 0 } });
+        return sendJson(res, { ok: true, client: { id: row.id, name: row.name, company: row.company } });
+      }
+      if (seg[0] === 'api' && seg[1] === 'clients' && seg[2] && req.method === 'GET') {
+        const rows = await sbRest('deals?id=eq.' + seg[2] + '&select=*,calls(id,created_at,summary,product_name,duration_sec)', jwt);
+        const d = rows[0];
+        if (!d) return sendJson(res, { error: 'not found' }, 404);
+        (d.calls || []).sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+        return sendJson(res, { client: d });
+      }
+      if (seg[0] === 'api' && seg[1] === 'clients' && seg[2] && req.method === 'PATCH') {
+        const body = await readBody(req);
+        const patch = {};
+        for (const k of ['name', 'company', 'status', 'notes']) if (k in body) patch[k] = body[k];
+        const row = (await sbRest('deals?id=eq.' + seg[2], jwt, { method: 'PATCH', body: patch }))[0];
+        return sendJson(res, { ok: true, client: row });
       }
 
+      // ---- calls ----
+      if (urlPath === '/api/calls' && req.method === 'GET') {
+        const rows = await sbRest('calls?select=id,created_at,summary,product_name,duration_sec,deals(name,company)&order=created_at.desc', jwt);
+        return sendJson(res, {
+          calls: rows.map(c => ({
+            id: c.id, created_at: c.created_at, summary: c.summary,
+            product_name: c.product_name, duration_sec: c.duration_sec,
+            client: c.deals ? c.deals.name : '(no client)', company: c.deals ? c.deals.company : ''
+          }))
+        });
+      }
+      if (seg[0] === 'api' && seg[1] === 'calls' && seg[2] && req.method === 'GET') {
+        const rows = await sbRest('calls?id=eq.' + seg[2] + '&select=*,deals(name,company)', jwt);
+        return sendJson(res, { call: rows[0] || null });
+      }
+
+      // ---- dashboard summary ----
+      if (urlPath === '/api/home' && req.method === 'GET') {
+        const [clients, calls] = await Promise.all([
+          sbRest('deals?select=id,name,company,status,calls(count)&order=created_at.desc&limit=6', jwt),
+          sbRest('calls?select=id,created_at,summary,product_name,deals(name)&order=created_at.desc&limit=6', jwt)
+        ]);
+        const allClients = await sbRest('deals?select=status', jwt);
+        const stats = { total: allClients.length, won: 0, open: 0, lost: 0 };
+        for (const c of allClients) stats[c.status] = (stats[c.status] || 0) + 1;
+        return sendJson(res, {
+          email: user.email, stats,
+          recentClients: clients.map(d => ({ id: d.id, name: d.name, company: d.company, status: d.status, calls: (d.calls && d.calls[0] && d.calls[0].count) || 0 })),
+          recentCalls: calls.map(c => ({ id: c.id, created_at: c.created_at, summary: c.summary, product_name: c.product_name, client: c.deals ? c.deals.name : '(no client)' }))
+        });
+      }
+
+      // ---- call lifecycle ----
       if (urlPath === '/api/call/start' && req.method === 'POST') {
         const { dealId, productId } = await readBody(req);
         if (productId) s.activeProductId = productId;
         s.activeDealId = dealId || null;
-        s.turns = []; s.callLog = null; s.lastCardAt = 0;
+        s.turns = []; s.cards = []; s.callLog = null; s.lastCardAt = 0; s.callStartAt = Date.now();
         s.memory = ''; s.dealState = null; s.dealName = '';
-        const prod = (await sbRest('products?id=eq.' + s.activeProductId + '&select=content', jwt))[0];
+        const prod = (await sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt))[0];
         s.productContent = (prod && prod.content) || '';
-        let brief = null;
+        s.activeProductName = (prod && prod.name) || '';
+        let brief = null, clientName = null;
         if (s.activeDealId) {
           const deal = (await sbRest('deals?id=eq.' + s.activeDealId + '&select=*,calls(count)', jwt))[0];
           if (deal) {
             const priorCalls = (deal.calls && deal.calls[0] && deal.calls[0].count) || 0;
             s.dealState = deal.state || EMPTY_STATE();
-            s.dealName = deal.name;
+            s.dealName = deal.name; clientName = deal.name;
             brief = buildBrief(deal.name, deal.company, deal.state, priorCalls);
             s.memory = priorCalls
               ? '\n\nDEAL MEMORY (what happened on previous calls with THIS prospect — use it):\n' +
@@ -421,20 +468,23 @@ const server = http.createServer(async (req, res) => {
               : '\n\nDEAL MEMORY: first call with ' + deal.name + (deal.company ? ' (' + deal.company + ')' : '') + ' — no history yet.';
           }
         }
-        return sendJson(res, { ok: true, brief });
+        return sendJson(res, { ok: true, brief, clientName, productName: s.activeProductName });
       }
-
       if (urlPath === '/api/call/end' && req.method === 'POST') {
-        if (!s.activeDealId) return sendJson(res, { ok: true, saved: false, msg: 'no client selected — transcript kept locally, no memory saved' });
+        const duration = Math.round((Date.now() - (s.callStartAt || Date.now())) / 1000);
+        if (!s.activeDealId) return sendJson(res, { ok: true, saved: false, msg: 'no client selected — nothing saved to memory' });
         if (s.turns.length < 2) return sendJson(res, { ok: true, saved: false, msg: 'call too short to analyze' });
         const state = await extractDealState(s.dealState, s.turns);
         await sbRest('deals?id=eq.' + s.activeDealId, jwt, { method: 'PATCH', body: { state } });
-        await sbRest('calls', jwt, {
+        const callRow = (await sbRest('calls', jwt, {
           method: 'POST',
-          body: { user_id: user.id, deal_id: s.activeDealId, transcript: s.turns, state, summary: state.summary || '' }
-        });
+          body: {
+            user_id: user.id, deal_id: s.activeDealId, transcript: s.turns, cards: s.cards,
+            state, summary: state.summary || '', product_name: s.activeProductName, duration_sec: duration
+          }
+        }))[0];
         s.dealState = state;
-        return sendJson(res, { ok: true, saved: true, msg: 'memory saved — ' + (s.dealName || 'client'), state });
+        return sendJson(res, { ok: true, saved: true, msg: 'memory saved — ' + (s.dealName || 'client'), state, callId: callRow.id, dealId: s.activeDealId });
       }
 
       if (urlPath === '/simulate' && req.method === 'POST') {
