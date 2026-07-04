@@ -7,7 +7,9 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { WebSocketServer } = require('ws');
+// WebSocket (client, for the Deepgram relay) is imported from ws so it works on
+// Node 20 too — global WebSocket only exists from Node 22.
+const { WebSocketServer, WebSocket } = require('ws');
 
 // ---- tiny .env loader ----
 try {
