@@ -260,8 +260,27 @@ async function coach(s) {
   if (s.coachQueued) { s.coachQueued = false; coach(s); }
 }
 
-// ---- post-call extraction → deal memory ----
-async function extractDealState(prevState, turns) {
+// ---- post-call extraction → per-client Markdown "Client Brain" ----
+const BRAIN_TEMPLATE = `# {Client name} — {Company}
+**Snapshot:** one-line status + how warm the deal is.
+## Their situation & pain
+## Objections raised
+## What they care about / buying signals
+## Stakeholders & decision process
+## Commitments
+## Where we left off / agreed next step
+## How to close them next call`;
+
+// pull the Snapshot line out of a Client Brain for the per-call summary list
+function snapshotOf(md) {
+  const s = String(md || '');
+  const m = s.match(/\*\*Snapshot:\*\*\s*(.+)/i) || s.match(/Snapshot:\s*(.+)/i);
+  if (m) return m[1].trim().slice(0, 220);
+  const first = s.split('\n').find(l => l.trim());
+  return (first || '').replace(/^#+\s*/, '').replace(/\*\*/g, '').slice(0, 160);
+}
+
+async function extractClientBrain(prevMemoryMd, turns, productName, clientName, company) {
   const transcript = turns.map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text).join('\n');
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -269,30 +288,40 @@ async function extractDealState(prevState, turns) {
     body: JSON.stringify({
       model: ANALYSIS_MODEL,
       temperature: 0.2,
-      max_tokens: 900,
-      response_format: { type: 'json_object' },
+      max_tokens: 1100,
       messages: [
         {
           role: 'system',
-          content: `You maintain structured deal memory for a salesperson across calls with one prospect.
-Given the PREVIOUS deal state and the transcript of the call that just ended, return the UPDATED FULL state as JSON:
-{"summary": "2-3 sentences on what happened this call",
- "objections": [{"text": "...", "status": "open|resolved"}],
- "commitments_us": ["what ME promised"],
- "commitments_them": ["what the prospect promised"],
- "stakeholders": ["name/role of anyone who influences the decision"],
- "pain_points": ["their stated problems, with their own numbers when given"],
- "sentiment": "one line: how warm is this deal",
- "next_step": "the concrete agreed next step, with timing if stated"}
-Rules: MERGE with previous state (carry forward what still holds, mark objections resolved when they were handled, add new items). Be factual — only what was actually said. Keep every item short.`
+          content: `You maintain a per-client "Client Brain" — a living Markdown memo a salesperson reads before and during their NEXT call with this ONE prospect.
+Given the PREVIOUS Client Brain and the transcript of the call that just ended, output the UPDATED, FULL Client Brain in Markdown.
+Use EXACTLY these sections and headings, in this order:
+
+${BRAIN_TEMPLATE}
+
+Rules:
+- MERGE: carry forward everything from the previous Brain that still holds; update objection status; add new facts; sharpen the close plan.
+- Under "Objections raised", each bullet: the objection — status: open OR handled, and how.
+- Factual only — only what was actually said or clearly implied. Never invent.
+- Keep every line short; this is read mid-call. Use "- " bullets under each section.
+- Output ONLY the Markdown document — no preamble, no code fences.`
         },
-        { role: 'user', content: 'PREVIOUS STATE:\n' + JSON.stringify(prevState || EMPTY_STATE()) + '\n\nTRANSCRIPT OF THE CALL THAT JUST ENDED:\n' + transcript }
+        {
+          role: 'user',
+          content: `CLIENT: ${clientName || 'the prospect'}${company ? ' — ' + company : ''}  (use this exact name/company in the "# " title; "PROSPECT:" in the transcript = this client)
+PRODUCT BEING SOLD: ${productName || '(unspecified)'}
+
+PREVIOUS CLIENT BRAIN:
+${prevMemoryMd && prevMemoryMd.trim() ? prevMemoryMd : '(none — this is the first call)'}
+
+TRANSCRIPT OF THE CALL THAT JUST ENDED:
+${transcript}`
+        }
       ]
     })
   });
   const j = await r.json();
   if (j.error) throw new Error(j.error.message);
-  return JSON.parse(j.choices[0].message.content);
+  return (j.choices[0].message.content || '').trim();
 }
 
 // canned ME+prospect pairs for the Test button
@@ -345,14 +374,31 @@ const server = http.createServer(async (req, res) => {
       s.jwt = jwt;
       const seg = urlPath.split('/').filter(Boolean);   // e.g. ['api','clients','<id>']
 
+      // ---- onboarding / profile ----
+      if (urlPath === '/api/me' && req.method === 'GET') {
+        const [prof, prods, cls] = await Promise.all([
+          sbRest('profiles?user_id=eq.' + user.id + '&select=name', jwt),
+          sbRest('products?select=id&limit=1', jwt),
+          sbRest('deals?select=id&limit=1', jwt)
+        ]);
+        return sendJson(res, {
+          email: user.email, name: (prof[0] && prof[0].name) || '',
+          hasProducts: prods.length > 0, hasClients: cls.length > 0, productTemplate: PRODUCT_TEMPLATE
+        });
+      }
+      if (urlPath === '/api/profile' && req.method === 'POST') {
+        const { name } = await readBody(req);
+        if (!name) return sendJson(res, { error: 'name required' }, 400);
+        await sbRest('profiles?on_conflict=user_id', jwt, {
+          method: 'POST', body: { user_id: user.id, name },
+          prefer: 'resolution=merge-duplicates,return=representation'
+        });
+        return sendJson(res, { ok: true });
+      }
+
       // ---- products ----
       if (urlPath === '/api/products' && req.method === 'GET') {
-        let products = await sbRest('products?select=id,name&order=created_at', jwt);
-        if (!products.length) {
-          products = (await sbRest('products', jwt, {
-            method: 'POST', body: { user_id: user.id, name: 'My product', content: PRODUCT_TEMPLATE }
-          })).map(p => ({ id: p.id, name: p.name }));
-        }
+        const products = await sbRest('products?select=id,name&order=created_at', jwt);
         return sendJson(res, { products, activeProductId: s.activeProductId });
       }
       if (urlPath === '/api/products' && req.method === 'POST') {
@@ -450,22 +496,23 @@ const server = http.createServer(async (req, res) => {
         if (productId) s.activeProductId = productId;
         s.activeDealId = dealId || null;
         s.turns = []; s.cards = []; s.callLog = null; s.lastCardAt = 0; s.callStartAt = Date.now();
-        s.memory = ''; s.dealState = null; s.dealName = '';
+        s.memory = ''; s.priorMemoryMd = ''; s.dealName = '';
         const prod = (await sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt))[0];
         s.productContent = (prod && prod.content) || '';
         s.activeProductName = (prod && prod.name) || '';
         let brief = null, clientName = null;
         if (s.activeDealId) {
-          const deal = (await sbRest('deals?id=eq.' + s.activeDealId + '&select=*,calls(count)', jwt))[0];
+          const deal = (await sbRest('deals?id=eq.' + s.activeDealId + '&select=name,company,memory_md', jwt))[0];
           if (deal) {
-            const priorCalls = (deal.calls && deal.calls[0] && deal.calls[0].count) || 0;
-            s.dealState = deal.state || EMPTY_STATE();
-            s.dealName = deal.name; clientName = deal.name;
-            brief = buildBrief(deal.name, deal.company, deal.state, priorCalls);
-            s.memory = priorCalls
-              ? '\n\nDEAL MEMORY (what happened on previous calls with THIS prospect — use it):\n' +
-                JSON.stringify({ name: deal.name, company: deal.company, prior_calls: priorCalls, state: deal.state }, null, 1)
-              : '\n\nDEAL MEMORY: first call with ' + deal.name + (deal.company ? ' (' + deal.company + ')' : '') + ' — no history yet.';
+            s.dealName = deal.name; s.dealCompany = deal.company || ''; clientName = deal.name;
+            s.priorMemoryMd = deal.memory_md || '';
+            if (s.priorMemoryMd.trim()) {
+              brief = s.priorMemoryMd;
+              s.memory = '\n\nDEAL MEMORY — the accumulated Client Brain for THIS prospect. USE it in your lines (their objections, stakeholders, commitments, stated pain, agreed next step, and the close plan):\n' + s.priorMemoryMd;
+            } else {
+              brief = 'First call with ' + deal.name + (deal.company ? ' (' + deal.company + ')' : '') + ' — no history yet. Get their situation and pain on record.';
+              s.memory = '\n\nDEAL MEMORY: first call with ' + deal.name + ' — no history yet.';
+            }
           }
         }
         return sendJson(res, { ok: true, brief, clientName, productName: s.activeProductName });
@@ -474,17 +521,17 @@ const server = http.createServer(async (req, res) => {
         const duration = Math.round((Date.now() - (s.callStartAt || Date.now())) / 1000);
         if (!s.activeDealId) return sendJson(res, { ok: true, saved: false, msg: 'no client selected — nothing saved to memory' });
         if (s.turns.length < 2) return sendJson(res, { ok: true, saved: false, msg: 'call too short to analyze' });
-        const state = await extractDealState(s.dealState, s.turns);
-        await sbRest('deals?id=eq.' + s.activeDealId, jwt, { method: 'PATCH', body: { state } });
+        const memoryMd = await extractClientBrain(s.priorMemoryMd, s.turns, s.activeProductName, s.dealName, s.dealCompany);
+        await sbRest('deals?id=eq.' + s.activeDealId, jwt, { method: 'PATCH', body: { memory_md: memoryMd } });
         const callRow = (await sbRest('calls', jwt, {
           method: 'POST',
           body: {
             user_id: user.id, deal_id: s.activeDealId, transcript: s.turns, cards: s.cards,
-            state, summary: state.summary || '', product_name: s.activeProductName, duration_sec: duration
+            summary: snapshotOf(memoryMd), product_name: s.activeProductName, duration_sec: duration
           }
         }))[0];
-        s.dealState = state;
-        return sendJson(res, { ok: true, saved: true, msg: 'memory saved — ' + (s.dealName || 'client'), state, callId: callRow.id, dealId: s.activeDealId });
+        s.priorMemoryMd = memoryMd;
+        return sendJson(res, { ok: true, saved: true, msg: 'Client Brain updated — ' + (s.dealName || 'client'), callId: callRow.id, dealId: s.activeDealId });
       }
 
       if (urlPath === '/simulate' && req.method === 'POST') {

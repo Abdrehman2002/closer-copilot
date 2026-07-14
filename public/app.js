@@ -22,6 +22,25 @@ async function api(path, body, method){
 const fmtDate = s => { try { return new Date(s).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }); } catch { return s; } };
 const fmtDur = n => n ? Math.floor(n/60) + 'm ' + (n%60) + 's' : '—';
 
+// ---------- tiny Markdown renderer (Client Brain uses a fixed template) ----------
+function mdToHtml(md){
+  if (!md) return '';
+  const inline = s => esc(s).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\*([^*]+)\*/g,'<em>$1</em>');
+  let html = '', inList = false;
+  const closeList = () => { if (inList){ html += '</ul>'; inList = false; } };
+  for (const raw of String(md).split(/\r?\n/)){
+    const line = raw.trimEnd();
+    if (/^###\s+/.test(line))      { closeList(); html += '<h4>' + inline(line.replace(/^###\s+/,'')) + '</h4>'; }
+    else if (/^##\s+/.test(line))  { closeList(); html += '<h3>' + inline(line.replace(/^##\s+/,'')) + '</h3>'; }
+    else if (/^#\s+/.test(line))   { closeList(); html += '<h2>' + inline(line.replace(/^#\s+/,'')) + '</h2>'; }
+    else if (/^[-*]\s+/.test(line)){ if (!inList){ html += '<ul>'; inList = true; } html += '<li>' + inline(line.replace(/^[-*]\s+/,'')) + '</li>'; }
+    else if (line === '')          { closeList(); }
+    else                           { closeList(); html += '<p>' + inline(line) + '</p>'; }
+  }
+  closeList();
+  return html;
+}
+
 // ---------- delivery-mark rendering ----------
 function renderLine(raw){
   let h = esc(raw);
@@ -99,7 +118,7 @@ async function popOut(){
   if (!('documentPictureInPicture' in window)){ alert('Overlay needs Chrome 116+.'); return; }
   pipWin = await documentPictureInPicture.requestWindow({ width: 620, height: 210 });
   const b = pipWin.document.body;
-  b.style.cssText = 'margin:0;background:#fff;color:#17202e;font:15px/1.5 "Segoe UI",system-ui,sans-serif;overflow:hidden;border-top:3px solid #0e9f6e';
+  b.style.cssText = 'margin:0;background:#fff;color:#0e1524;font:15px/1.5 "Inter","Segoe UI",system-ui,sans-serif;overflow:hidden;border-top:3px solid #5b5bef';
   b.innerHTML = '<div id="pc" style="padding:14px 18px;color:#64748b">Overlay live — the next card appears here, on top of everything.</div>';
   pipWin.addEventListener('pagehide', () => { pipWin = null; });
 }
@@ -107,10 +126,10 @@ function updatePip(c){
   if (!pipWin) return;
   const silent = /silent/i.test(c.tone);
   pipWin.document.getElementById('pc').innerHTML =
-    '<div style="padding:12px 18px"><span style="display:inline-block;font-size:12px;font-weight:700;letter-spacing:.6px;color:#fff;background:' + (silent?'#b7791f':'#0e9f6e') + ';border-radius:6px;padding:2px 10px;margin-bottom:8px;text-transform:uppercase">' + esc(c.tone) + '</span>' +
+    '<div style="padding:12px 18px"><span style="display:inline-block;font-size:12px;font-weight:700;letter-spacing:.6px;color:#fff;background:' + (silent?'#b7791f':'#5b5bef') + ';border-radius:6px;padding:2px 10px;margin-bottom:8px;text-transform:uppercase">' + esc(c.tone) + '</span>' +
     '<div style="font-size:22px;font-weight:600;line-height:1.5">' + renderLine(c.line)
-      .replace(/class="pause long"/g,'style="color:#0e9f6e;font-weight:800;font-size:13px;background:#e6f6ef;border-radius:5px;padding:2px 7px"')
-      .replace(/class="pause"/g,'style="color:#0e9f6e;font-weight:800;padding:0 3px"')
+      .replace(/class="pause long"/g,'style="color:#4b3fe0;font-weight:800;font-size:13px;background:#eef0fe;border-radius:5px;padding:2px 7px"')
+      .replace(/class="pause"/g,'style="color:#5b5bef;font-weight:800;padding:0 3px"')
       .replace(/class="cue"/g,'style="font-size:12px;font-style:italic;color:#475569;background:#eef2f7;border-radius:5px;padding:1px 8px;margin:0 3px"')
       .replace(/class="down"/g,'style="color:#2563eb"').replace(/class="up"/g,'style="color:#b45309"') + '</div></div>';
 }
@@ -167,8 +186,8 @@ async function viewClient(id){
   view().innerHTML = '<div class="muted">Loading…</div>';
   const d = await api('/api/clients/' + id);
   if (d.error){ view().innerHTML = '<div class="muted">Not found.</div>'; return; }
-  const c = d.client, st = c.state || {};
-  const arr = (a, f) => (a && a.length) ? '<ul>' + a.map(x => '<li>' + esc(f(x)) + '</li>').join('') + '</ul>' : '<div class="empty">—</div>';
+  const c = d.client;
+  const brain = (c.memory_md || '').trim();
   view().innerHTML = `
     <div class="page-h"><a href="#/clients" class="muted">← Clients</a></div>
     <div class="page-h"><h1>${esc(c.name)}</h1><span class="badge ${c.status}">${c.status}</span>
@@ -177,26 +196,21 @@ async function viewClient(id){
       <button class="ghost sm" data-st="won">Mark Won</button>
       <button class="ghost sm" data-st="lost">Mark Lost</button>
       <button data-newcall>＋ New call with ${esc(c.name.split(' ')[0])}</button></div>
-    <div class="muted" style="margin-bottom:14px">${esc(c.company||'')}</div>
+    <div class="muted" style="margin-bottom:16px">${esc(c.company||'')}</div>
 
-    <h3 style="margin-bottom:6px">Deal memory</h3>
-    <div class="mem">
-      <div class="box"><h4>Open objections</h4>${arr((st.objections||[]).filter(o=>o.status!=='resolved'), o=>o.text)}</div>
-      <div class="box"><h4>Stakeholders</h4>${arr(st.stakeholders, x=>x)}</div>
-      <div class="box"><h4>Their pain</h4>${arr(st.pain_points, x=>x)}</div>
-      <div class="box"><h4>Commitments</h4>${arr([...(st.commitments_them||[]).map(x=>'They: '+x), ...(st.commitments_us||[]).map(x=>'Us: '+x)], x=>x)}</div>
-    </div>
-    <div class="card-panel" style="margin-bottom:14px"><b>Next step:</b> ${esc(st.next_step||'—')}<br>
-      <span class="muted">Sentiment: ${esc(st.sentiment||'—')}</span></div>
+    <div class="page-h" style="margin-bottom:8px"><h3>🧠 Client Brain</h3>
+      <span class="muted" style="font-size:12px">auto-updated after every call</span><div class="spacer"></div>
+      ${brain?'<button class="ghost sm" id="dlmd">⬇ Download .md</button>':''}</div>
+    <div class="card-panel brain">${ brain ? mdToHtml(brain) : '<span class="muted">No history yet — your first call will build this.</span>' }</div>
 
     <label>Your notes</label>
-    <textarea id="notes" placeholder="Anything you want the coach and yourself to remember…">${esc(c.notes||'')}</textarea>
+    <textarea id="notes" placeholder="Anything you want to remember about this client…">${esc(c.notes||'')}</textarea>
     <button class="ghost sm" id="savenotes" style="margin-top:8px">Save notes</button>
 
-    <h3 style="margin:22px 0 8px">Call history (${(c.calls||[]).length})</h3>
+    <h3 style="margin:24px 0 10px">Call history (${(c.calls||[]).length})</h3>
     <div class="rowlist">${
       (c.calls||[]).length ? c.calls.map(k => `<div class="row" data-go="#/calls/${k.id}">
-        <div><div class="title">${fmtDate(k.created_at)}</div><div class="meta">${esc(k.summary||'').slice(0,110)}</div></div>
+        <div><div class="title">${fmtDate(k.created_at)}</div><div class="meta">${esc(k.summary||'').slice(0,120)}</div></div>
         <div class="spacer"></div><span class="meta">${fmtDur(k.duration_sec)}</span></div>`).join('')
       : '<div class="muted">No calls yet.</div>'
     }</div>`;
@@ -205,6 +219,12 @@ async function viewClient(id){
     await api('/api/clients/' + id, { status: b.dataset.st }, 'PATCH'); viewClient(id);
   });
   $('savenotes').onclick = async () => { await api('/api/clients/' + id, { notes: $('notes').value }, 'PATCH'); $('savenotes').textContent = 'Saved ✓'; };
+  if ($('dlmd')) $('dlmd').onclick = () => {
+    const blob = new Blob([c.memory_md], { type:'text/markdown' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = (c.name||'client').replace(/[^\w]+/g,'_') + '.md'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
   wireRows();
 }
 
@@ -273,12 +293,19 @@ async function viewProduct(id){
 async function viewNew(){
   const pd = await api('/api/products');
   const cd = await api('/api/clients');
+  if (!pd.products.length){
+    view().innerHTML = `<div class="page-h"><h1>New Call</h1></div>
+      <div class="card-panel" style="max-width:560px">
+        <p style="margin-bottom:14px">You need at least one <b>playbook</b> (what you're selling) before starting a call.</p>
+        <button onclick="location.hash='#/products/new'">Create your first playbook →</button></div>`;
+    return;
+  }
   view().innerHTML = `
     <div class="page-h"><h1>New Call</h1></div>
     <div class="card-panel" style="max-width:640px">
       <div class="setup-row">
-        <div><label>Product you're selling</label>
-          <select id="selProduct">${pd.products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+        <div><label>Which playbook are you selling on this call?</label>
+          <select id="selProduct">${pd.products.map(p=>`<option value="${p.id}" ${call.productId===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select></div>
         <div><label>Client</label>
           <select id="selClient"><option value="">＋ New client…</option>${
             cd.clients.map(c=>`<option value="${c.id}" ${call.dealId===c.id?'selected':''}>${esc(c.name)}${c.company?' — '+esc(c.company):''} (${c.calls})</option>`).join('')
@@ -364,7 +391,7 @@ function viewLive(){
       <button class="ghost sm" id="overlayBtn">Overlay ⇱</button>
       <button class="ghost sm" id="testBtn">Test ⚡</button>
       ${call.active?'<button class="stop" id="endBtn">End Call</button>':''}</div>
-    ${call.brief?`<div class="brief" style="margin-bottom:14px"><b>PRE-CALL BRIEF</b>${esc(call.brief)}</div>`:''}
+    ${call.brief?`<div class="brief brainbrief" style="margin-bottom:14px"><b>Pre-call brief — Client Brain</b><div class="brief-body">${mdToHtml(call.brief)}</div></div>`:''}
     <div class="live-wrap">
       <div class="live-left"><div id="cards"></div></div>
       <div class="live-right">
@@ -405,13 +432,101 @@ $('navNew').onclick = () => location.hash = '#/new';
 $('signout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
 window.addEventListener('hashchange', router);
 
+// ================= ONBOARDING WIZARD =================
+function finishWizard(){ const w = $('wizard'); if (w) w.remove(); }
+function startWizard(me){
+  const steps = ['name'];
+  if (!me.hasProducts) steps.push('product');
+  if (!me.hasClients) steps.push('client');
+  steps.push('done');
+  let i = 0;
+  const data = { productId: null, dealId: null };
+
+  const veil = document.createElement('div');
+  veil.className = 'veil'; veil.id = 'wizard';
+  document.body.appendChild(veil);
+
+  const render = () => {
+    const step = steps[i];
+    veil.innerHTML = `<div class="authwrap" style="width:560px;height:auto">
+      <div class="authform" style="width:100%;padding:38px">
+        <div class="loginbox" style="max-width:100%">
+          <div class="brand" style="margin-bottom:6px"><span class="bdot"></span>Closer <b>Copilot</b></div>
+          <div class="muted" style="font-size:12px;margin-bottom:16px">Setup · step ${i+1} of ${steps.length}</div>
+          <div class="msg" id="wmsg"></div>
+          <div id="wzbody"></div>
+        </div></div></div>`;
+    const body = veil.querySelector('#wzbody');
+    const wmsg = t => { const m = veil.querySelector('#wmsg'); m.className='msg err'; m.textContent = t; };
+
+    if (step === 'name'){
+      body.innerHTML = `<h1 class="auth-h">Welcome 👋</h1><p class="sub">What should we call you?</p>
+        <label>Your name</label><input id="wname" placeholder="e.g. Abdur" value="${esc(me.name||'')}">
+        <button class="wide" id="wnext">Continue →</button>`;
+      veil.querySelector('#wnext').onclick = async () => {
+        const name = veil.querySelector('#wname').value.trim();
+        if (!name) return wmsg('Enter your name');
+        await api('/api/profile', { name });
+        $('whoami').textContent = name;
+        i++; render();
+      };
+      veil.querySelector('#wname').focus();
+    }
+    else if (step === 'product'){
+      body.innerHTML = `<h1 class="auth-h">Create your first playbook</h1>
+        <p class="sub">The coach reads this on every call. The sharper this is, the sharper your lines.</p>
+        <label>Playbook name</label><input id="wpname" placeholder="e.g. Vextria HVAC">
+        <label>What you sell — offer, pricing, common objections + your best answers, proof, the close</label>
+        <textarea id="wpcontent" style="min-height:210px">${esc(me.productTemplate||'')}</textarea>
+        <button class="wide" id="wnext">Continue →</button>`;
+      veil.querySelector('#wnext').onclick = async () => {
+        const name = veil.querySelector('#wpname').value.trim();
+        if (!name) return wmsg('Name your playbook');
+        const r = await api('/api/products', { name, content: veil.querySelector('#wpcontent').value });
+        data.productId = r.product && r.product.id;
+        i++; render();
+      };
+    }
+    else if (step === 'client'){
+      body.innerHTML = `<h1 class="auth-h">Add your first client</h1>
+        <p class="sub">The person you'll be selling to. Their memory builds from your first call.</p>
+        <label>Client name</label><input id="wcname" placeholder="Person on the call">
+        <label>Company (optional)</label><input id="wccompany" placeholder="Their company">
+        <button class="wide" id="wnext">Continue →</button>`;
+      veil.querySelector('#wnext').onclick = async () => {
+        const name = veil.querySelector('#wcname').value.trim();
+        if (!name) return wmsg('Enter a client name');
+        const r = await api('/api/clients', { name, company: veil.querySelector('#wccompany').value.trim() });
+        data.dealId = r.client && r.client.id;
+        i++; render();
+      };
+    }
+    else {
+      body.innerHTML = `<h1 class="auth-h">You're all set 🎉</h1>
+        <p class="sub">Start your first call. On the call screen, hit <b>Test ⚡</b> to feel the coaching instantly — no real call needed.</p>
+        <button class="wide" id="wgo">Start my first call →</button>
+        <button class="wide ghost" id="wskip">Go to Home</button>`;
+      veil.querySelector('#wgo').onclick = () => {
+        if (data.dealId) call.dealId = data.dealId;
+        if (data.productId) call.productId = data.productId;
+        finishWizard(); location.hash = '#/new'; router();
+      };
+      veil.querySelector('#wskip').onclick = () => { finishWizard(); location.hash = '#/home'; router(); };
+    }
+  };
+  render();
+}
+
 // ================= AUTH =================
 function lmsg(t, ok){ const m=$('lmsg'); m.className='msg '+(ok?'ok':'err'); m.textContent=t; }
 async function enterApp(){
   $('login').classList.add('hidden'); $('app').classList.remove('hidden');
   const { data:{ user } } = await sb.auth.getUser();
-  $('whoami').textContent = user ? user.email : '';
+  const av = $('avatar'); if (av) av.textContent = (user && user.email ? user.email[0] : '?').toUpperCase();
   connectEvents();
+  const me = await api('/api/me');
+  $('whoami').textContent = (me && me.name) ? me.name : (user ? user.email : '');
+  if (me && !me.name){ startWizard(me); return; }
   if (!location.hash) location.hash = '#/home'; else router();
 }
 $('lsignin').onclick = async () => {

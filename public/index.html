@@ -4,41 +4,72 @@
 <meta charset="utf-8">
 <title>Closer Copilot</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
 
 <!-- LOGIN -->
 <div class="veil" id="login">
-  <div class="loginbox">
-    <div class="brand">CLOSER <span>COPILOT</span></div>
-    <p class="sub">Your live sales coach with deal memory.</p>
-    <div class="msg" id="lmsg"></div>
-    <input id="lemail" type="email" placeholder="Email" autocomplete="email">
-    <input id="lpass" type="password" placeholder="Password (min 6 characters)" autocomplete="current-password">
-    <button id="lsignin" class="wide">Sign in</button>
-    <button id="lsignup" class="wide ghost">Create account</button>
+  <div class="authwrap">
+    <div class="authbrand">
+      <div class="brand"><span class="bdot"></span>Closer <b>Copilot</b></div>
+      <div class="ab-mid">
+        <h2>Close more of the calls<br>you're already taking.</h2>
+        <p>Live, whispered coaching on every sales call — with memory of every deal, so you always know exactly where you left off.</p>
+        <ul class="ab-feats">
+          <li>Real-time objection handling, one line at a time</li>
+          <li>Live two-speaker transcript</li>
+          <li>Deal memory that briefs you before every call</li>
+        </ul>
+      </div>
+      <div class="ab-foot">Built for closers.</div>
+    </div>
+    <div class="authform">
+      <div class="loginbox">
+        <div class="brand mob"><span class="bdot"></span>Closer <b>Copilot</b></div>
+        <h1 class="auth-h">Welcome back</h1>
+        <p class="sub">Sign in to your workspace.</p>
+        <div class="msg" id="lmsg"></div>
+        <label>Email</label>
+        <input id="lemail" type="email" placeholder="you@company.com" autocomplete="email">
+        <label>Password</label>
+        <input id="lpass" type="password" placeholder="Your password" autocomplete="current-password">
+        <button id="lsignin" class="wide">Sign in</button>
+        <div class="or"><span>new here?</span></div>
+        <button id="lsignup" class="wide ghost">Create an account</button>
+      </div>
+    </div>
   </div>
 </div>
 
 <!-- APP SHELL -->
 <div id="app" class="hidden">
   <aside id="sidebar">
-    <div class="logo">CLOSER <span>COPILOT</span></div>
+    <div class="logo"><span class="bdot"></span>Closer <b>Copilot</b></div>
     <button id="navNew" class="newcall">＋ New Call</button>
     <nav>
-      <a href="#/home"     data-nav="home">🏠 Home</a>
-      <a href="#/clients"  data-nav="clients">👥 Clients</a>
-      <a href="#/calls"    data-nav="calls">📞 Calls</a>
-      <a href="#/products" data-nav="products">📦 Products</a>
+      <a href="#/home"     data-nav="home"><span class="ico">🏠</span> Home</a>
+      <a href="#/clients"  data-nav="clients"><span class="ico">👥</span> Clients</a>
+      <a href="#/calls"    data-nav="calls"><span class="ico">📞</span> Calls</a>
+      <a href="#/products" data-nav="products"><span class="ico">📦</span> Products</a>
     </nav>
     <div class="side-foot">
-      <div id="whoami" class="who"></div>
-      <button id="signout" class="ghost sm">Sign out</button>
+      <span class="tagpill">● Pilot build</span>
     </div>
   </aside>
 
   <main id="main">
+    <header class="topbar">
+      <div class="tb-left"></div>
+      <div class="tb-right">
+        <div class="who" id="whoami"></div>
+        <div class="avatar" id="avatar"></div>
+        <button id="signout" class="ghost sm">Sign out</button>
+      </div>
+    </header>
     <div id="callbar" class="callbar hidden">● Call in progress <a href="#/live">return to call →</a></div>
     <div id="view"></div>
   </main>

@@ -35,6 +35,11 @@ Play any YouTube sales-call recording in a tab and share THAT tab as the
 
 - [x] Live two-speaker transcript (mic + tab audio → Deepgram nova-3)
 - [x] Whisper loop with playbook (gpt-4o-mini, one-line cards)
-- [ ] Post-call deal-state extraction → Supabase
-- [ ] Pre-call "where we left off" brief
-- [ ] Deal memory fed into live prompts (the wedge)
+- [x] Post-call deal-state extraction → Supabase
+- [x] Pre-call "where we left off" brief
+- [x] Deal memory fed into live prompts (the wedge)
+- [ ] Usage/margin tracking per user; billing; polish for paid launch
+
+**Demo note:** the Supabase project auto-pauses after ~7 days idle (free tier).
+If login hangs, un-pause it in the Supabase dashboard (Restore) before demoing.
+Use the **Test** button (`/simulate`) to rehearse coaching without a live call.
