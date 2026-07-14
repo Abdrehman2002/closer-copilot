@@ -168,15 +168,19 @@ function buildBrief(dealName, company, state, priorCalls) {
 }
 
 function buildSystemPrompt(s) {
+  // Keep the big stable content (intro + playbook + product + format rules) as one prefix so
+  // OpenAI prompt-caching serves it near-instantly on every call after the first; the only
+  // part that varies (per-client memory) goes LAST as a short tail. This is the main latency win.
   return 'You are a live sales coach whispering to "ME" (the seller) during a real video sales call.\n' +
     'You see the live transcript. Feed the closer the best next line to say. Fire whenever a useful line exists — the closer is counting on you — and stay silent only for pure small talk.\n\n' +
     PLAYBOOK + '\n\n' +
-    (s.productContent || '(no product knowledge provided)') +
-    (s.memory || '') + '\n\n' + FORMAT_RULES;
+    (s.productContent || '(no product knowledge provided)') + '\n\n' +
+    FORMAT_RULES +
+    (s.memory || '');
 }
 
 // ---- coach loop (streaming, per session) ----
-const CARD_COOLDOWN_MS = 3500;
+const CARD_COOLDOWN_MS = 2500;
 
 function parseCoach(raw) {
   const get = k => {
@@ -564,7 +568,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ---- Deepgram relay (one live socket per browser audio socket) ----
-const DG_URL = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=400';
+const DG_URL = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=300';
 
 function relayAudio(clientWs, ch, s) {
   ensureCallLog(s);
@@ -595,7 +599,8 @@ function relayAudio(clientWs, ch, s) {
       broadcast(s, { type: 'transcript', ch, text });
       if (ch === 'prospect') {
         clearTimeout(s.coachTimer);
-        s.coachTimer = setTimeout(() => coach(s), d.speech_final ? 150 : 700);
+        // prospect actually stopped (speech_final) → coach immediately; mid-stream → short debounce
+        s.coachTimer = setTimeout(() => coach(s), d.speech_final ? 0 : 400);
       }
     } else {
       broadcast(s, { type: 'interim', ch, text });
