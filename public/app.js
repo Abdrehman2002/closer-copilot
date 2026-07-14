@@ -257,9 +257,78 @@ async function viewCall(id){
     </div>`;
 }
 
+// ---------- conversational playbook interview ----------
+const INTERVIEW = [
+  { key:'name', short:true, required:true, q:"What should we call this playbook? (usually the product or offer name)", ph:"e.g. Vextria HVAC" },
+  { key:'offer', required:true, q:"In a sentence or two, what exactly do you sell?", ph:"An AI voice receptionist for HVAC companies that answers every call 24/7 and books the job." },
+  { key:'outcome', q:"What's the real outcome or transformation the customer gets — the 'after' state?", ph:"They never miss a job again; every call is answered and booked, even after hours." },
+  { key:'buyer', q:"Who's on the other end of the call — their role, industry, and what their world looks like?", ph:"Owner-operator HVAC, out on jobs all day, answers the phone himself between calls." },
+  { key:'pain', q:"What's the #1 problem you solve — and what does NOT solving it cost them, in their own terms (money, time, jobs, stress)?", ph:"Missed calls = lost jobs to competitors — 5-6 a week, ~$300 each = real money walking away." },
+  { key:'objections', big:true, q:"Now the important part — your objections. List the ones you hear most, in the prospect's own words, each with your best answer. Add as many as you can.", ph:"\"It's too expensive\" → Compared to one missed job a week? It pays for itself...\n\"AI sounds robotic\" → ...\n\"I already have an answering service\" → ..." },
+  { key:'proof', q:"What proof do you have — results, numbers, testimonials — and any guarantee or risk-reversal?", ph:"One client recovered 8 jobs in month one. 30-day money-back guarantee." },
+  { key:'competition', q:"What else might they consider (including doing nothing), and why are you the better choice?", ph:"Cheap answering services just take messages; voicemail loses the job; we actually book it." },
+  { key:'close', q:"What EXACTLY are you asking them to do on the call — and your price, plus any REAL urgency?", ph:"Start a paid pilot today. $1,400 setup + first month. Only a few onboarding slots left this month." },
+  { key:'voice', q:"Last one — how do you want to SOUND on these calls? Any phrases you always or never use?", ph:"Calm, confident, consultative — never pushy. I always say 'makes sense?'" }
+];
+
+function renderInterview(container, onComplete){
+  const answers = {}; let qi = 0;
+  const step = () => {
+    if (qi >= INTERVIEW.length){ compileAndSave(); return; }
+    const item = INTERVIEW[qi];
+    const prior = INTERVIEW.slice(0, qi).filter(it=>answers[it.key]).map(it =>
+      `<div class="iv-qa"><div class="iv-q">${esc(it.q)}</div><div class="iv-a">${esc(answers[it.key]).replace(/\n/g,'<br>')}</div></div>`).join('');
+    container.innerHTML = `
+      <div class="iv-progress">Question ${qi+1} of ${INTERVIEW.length}</div>
+      ${prior ? `<div class="iv-history">${prior}</div>` : ''}
+      <div class="iv-current">
+        <div class="iv-q big">${esc(item.q)}</div>
+        <div class="msg" id="ivMsg"></div>
+        ${item.short ? `<input id="ivInput" placeholder="${esc(item.ph||'')}">`
+                     : `<textarea id="ivInput" style="min-height:${item.big?170:110}px" placeholder="${esc(item.ph||'')}"></textarea>`}
+        <div style="margin-top:10px;display:flex;gap:8px">
+          ${qi>0 ? '<button class="ghost" id="ivBack">← Back</button>' : ''}
+          <button id="ivNext">${qi===INTERVIEW.length-1 ? 'Build my playbook →' : 'Next →'}</button>
+          ${item.required ? '' : '<button class="ghost" id="ivSkip">Skip</button>'}
+        </div>
+      </div>`;
+    const input = container.querySelector('#ivInput');
+    input.value = answers[item.key] || ''; input.focus();
+    if (item.short) input.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); container.querySelector('#ivNext').click(); } });
+    const advance = () => { answers[item.key] = input.value.trim(); qi++; step(); };
+    container.querySelector('#ivNext').onclick = () => {
+      if (item.required && !input.value.trim()){ const m=container.querySelector('#ivMsg'); m.className='msg err'; m.textContent='This one is needed to build a useful playbook.'; return; }
+      advance();
+    };
+    if (qi>0) container.querySelector('#ivBack').onclick = () => { answers[item.key]=input.value.trim(); qi--; step(); };
+    const skip = container.querySelector('#ivSkip'); if (skip) skip.onclick = () => { answers[item.key]=''; qi++; step(); };
+  };
+  const compileAndSave = async () => {
+    container.innerHTML = `<div class="iv-progress">Building your playbook…</div>
+      <div class="muted">Turning your answers into a coaching playbook — this takes a few seconds.</div>`;
+    try {
+      const name = answers.name || 'My playbook';
+      const c = await api('/api/playbook/compile', { answers });
+      const r = await api('/api/products', { name, content: c.content });
+      onComplete(r.product.id, name);
+    } catch(e){
+      container.innerHTML = `<div class="msg err">Couldn't build it: ${esc(e.message)}</div>`;
+    }
+  };
+  step();
+}
+
+function viewPlaybookNew(){
+  view().innerHTML = `<div class="page-h"><a href="#/products" class="muted">← Products</a></div>
+    <div class="page-h"><h1>Build a playbook</h1></div>
+    <p class="muted" style="margin-bottom:16px;max-width:640px">I'll ask you a few questions about what you sell, then compile them into a coaching playbook. The sharper your answers, the sharper your lines on the call.</p>
+    <div class="card-panel" id="ivHost" style="max-width:720px"></div>`;
+  renderInterview($('ivHost'), (id) => { location.hash = '#/products/' + id; });
+}
+
 async function viewProducts(){
   view().innerHTML = `<div class="page-h"><h1>Products</h1><div class="spacer"></div>
-    <button onclick="location.hash='#/products/new'">＋ Add product</button></div>
+    <button onclick="location.hash='#/playbook/new'">＋ Add playbook</button></div>
     <div class="rowlist" id="list"><div class="muted">Loading…</div></div>`;
   const d = await api('/api/products');
   $('list').innerHTML = d.products.map(p => `<div class="row" data-go="#/products/${p.id}">
@@ -418,6 +487,7 @@ const routes = [
   [/^#\/calls$/, viewCalls],
   [/^#\/calls\/(.+)$/, m => viewCall(m[1])],
   [/^#\/products$/, viewProducts],
+  [/^#\/playbook\/new$/, viewPlaybookNew],
   [/^#\/products\/(.+)$/, m => viewProduct(m[1])],
 ];
 function router(){
@@ -473,19 +543,10 @@ function startWizard(me){
       veil.querySelector('#wname').focus();
     }
     else if (step === 'product'){
-      body.innerHTML = `<h1 class="auth-h">Create your first playbook</h1>
-        <p class="sub">The coach reads this on every call. The sharper this is, the sharper your lines.</p>
-        <label>Playbook name</label><input id="wpname" placeholder="e.g. Vextria HVAC">
-        <label>What you sell — offer, pricing, common objections + your best answers, proof, the close</label>
-        <textarea id="wpcontent" style="min-height:210px">${esc(me.productTemplate||'')}</textarea>
-        <button class="wide" id="wnext">Continue →</button>`;
-      veil.querySelector('#wnext').onclick = async () => {
-        const name = veil.querySelector('#wpname').value.trim();
-        if (!name) return wmsg('Name your playbook');
-        const r = await api('/api/products', { name, content: veil.querySelector('#wpcontent').value });
-        data.productId = r.product && r.product.id;
-        i++; render();
-      };
+      body.innerHTML = `<h1 class="auth-h">Build your first playbook</h1>
+        <p class="sub">I'll ask you a few quick questions about what you sell, then turn them into your coaching playbook.</p>
+        <div id="ivHost"></div>`;
+      renderInterview(veil.querySelector('#ivHost'), (id) => { data.productId = id; i++; render(); });
     }
     else if (step === 'client'){
       body.innerHTML = `<h1 class="auth-h">Add your first client</h1>

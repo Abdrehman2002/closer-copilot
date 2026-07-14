@@ -53,20 +53,22 @@ must be precise enough to perform without thinking:
 - ↘ = the words after it drop lower and slower (authority, statement lands).
   ↗ = the words after it lift (genuine curious question). Use at least one.
 - *word* = the single most-stressed word in the line. Exactly one per card.
-- [micro-cue] = an inline stage direction placed EXACTLY where the delivery changes,
-  in square brackets. Vocabulary: [slower] [speed up] [softer] [almost a whisper]
-  [warm smile] [dead serious] [lean in] [word by word] [shrug, easy] [eyebrows up].
-  Use 1–2 per card, at the exact word where the shift happens. NEVER generic.
-- TONE field = opening state before the first word: EMOTION · pace · one physical note.
-  e.g. "CALM · slow · soft eyes" / "CONFIDENT · brisk · sit back" — never just "CALM".
-- If the right move is silence: LINE: … and TONE: SILENT — 3 sec, hold eye contact, do not fill it
+- [vocal-cue] = an inline VOICE direction placed EXACTLY where the delivery changes, in square
+  brackets. This is AUDIO ONLY (the camera is off) — describe how it SOUNDS, never body language.
+  Vocabulary: [slower] [speed up] [softer] [near-whisper] [warmth up] [certainty]
+  [smile in your voice] [flat & serious] [let it hang] [word by word].
+  Use 1–2 per card, at the exact word where the shift happens. NEVER [smile] [lean in] [eye contact]
+  or anything visual — those are useless on a voice call.
+- TONE field = opening vocal state before the first word: EMOTION · pace · vocal quality.
+  e.g. "CALM · slow · warmth in the voice" / "CERTAIN · deliberate · smile in your voice" — never just "CALM".
+- If the right move is silence: LINE: … and TONE: SILENT — go quiet ~3 seconds, let them fill it
 - If DEAL MEMORY is present, USE it: reference what THIS prospect said in previous calls
   (their objections, commitments, stakeholders, stated pain) whenever it sharpens the move.
 
 Example:
 DECISION: FIRE
 TONE: CALM · slow · soft eyes
-LINE: I hear you — |||| [softer] most owners told me the same… ↘ until they counted the *missed* calls. || [lean in] ↗ What's one job worth to you?
+LINE: I hear you — |||| [softer] most owners told me the same… ↘ until they counted the *missed* calls. || [warmth up] ↗ What's one job worth to you?
 WHY: price pushback; re-anchor on his stated pain
 TECH: label + reframe`;
 
@@ -328,6 +330,49 @@ ${transcript}`
   return (j.choices[0].message.content || '').trim();
 }
 
+// compile a salesperson's interview answers into a rich structured playbook the coach reads
+async function compilePlaybook(answers) {
+  const body = Object.entries(answers || {})
+    .filter(([k]) => k !== 'name')
+    .map(([k, v]) => k.toUpperCase() + ':\n' + (v || '(not provided)')).join('\n\n');
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: ANALYSIS_MODEL, temperature: 0.3, max_tokens: 1500,
+      messages: [
+        {
+          role: 'system',
+          content: `You turn a salesperson's interview answers into a sharp, structured "Sales Playbook" in Markdown that a live AI voice-coach reads on every call to feed the seller exact lines. The calls are VOICE ONLY.
+Use EXACTLY these sections and headings:
+
+# {offer name}
+## What we sell & the transformation
+## Ideal buyer & how to read them
+## Core pain & the cost of doing nothing (in their numbers)
+## Objection playbook
+For EACH objection the seller mentioned, output:
+### "<the objection in the prospect's own words>"
+- Move: <the psychology to use — label / reframe / calibrated question / re-anchor, etc.>
+- Say: <a ready, natural, voice-first line the seller can deliver — short, spoken, not corporate>
+## Proof & risk-reversal
+## Competition & why us (include 'doing nothing')
+## The close
+The exact ask, the price anchor, and any REAL urgency.
+## Voice & phrases
+How they want to sound; always-use and never-use phrases.
+
+Rules: use ONLY facts from their answers — NEVER invent prices, proof, guarantees, or urgency. If something is missing, write "(not provided)". Keep every line short and natural for the ear.`
+        },
+        { role: 'user', content: 'PLAYBOOK NAME: ' + ((answers && answers.name) || 'Untitled') + '\n\nINTERVIEW ANSWERS:\n' + body }
+      ]
+    })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return (j.choices[0].message.content || '').trim();
+}
+
 // canned ME+prospect pairs for the Test button
 const SIM_PAIRS = [
   { me: "So with setup and the first month included, it comes to fourteen hundred dollars total.",
@@ -426,6 +471,12 @@ const server = http.createServer(async (req, res) => {
         const { id } = await readBody(req);
         s.activeProductId = id;
         return sendJson(res, { ok: true });
+      }
+
+      if (urlPath === '/api/playbook/compile' && req.method === 'POST') {
+        const { answers } = await readBody(req);
+        const content = await compilePlaybook(answers || {});
+        return sendJson(res, { ok: true, content });
       }
 
       // ---- clients (deals) ----
