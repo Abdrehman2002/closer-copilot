@@ -43,7 +43,7 @@ LINE: <the exact words ME should say next>
 WHY: <max 10 words, the read on the moment>
 TECH: <named move: mirror, label, reframe, takeaway, assumptive close, silence, calibrated question, pain quantify>
 
-If HOLD: output only "DECISION: HOLD" and nothing else. Fire ONLY at high-stakes moments per the playbook.
+If HOLD: output only "DECISION: HOLD" and nothing else. Per the playbook, FIRE whenever a useful next line exists (most of the time the prospect just spoke); HOLD only for pure greetings/small talk. When in doubt, FIRE.
 
 LINE delivery rules (MANDATORY, every card). You are directing an actor — the delivery
 must be precise enough to perform without thinking:
@@ -169,14 +169,14 @@ function buildBrief(dealName, company, state, priorCalls) {
 
 function buildSystemPrompt(s) {
   return 'You are a live sales coach whispering to "ME" (the seller) during a real video sales call.\n' +
-    'You see the live transcript. Decide if THIS moment needs a card. Most moments do not.\n\n' +
+    'You see the live transcript. Feed the closer the best next line to say. Fire whenever a useful line exists — the closer is counting on you — and stay silent only for pure small talk.\n\n' +
     PLAYBOOK + '\n\n' +
     (s.productContent || '(no product knowledge provided)') +
     (s.memory || '') + '\n\n' + FORMAT_RULES;
 }
 
 // ---- coach loop (streaming, per session) ----
-const CARD_COOLDOWN_MS = 5000;
+const CARD_COOLDOWN_MS = 3500;
 
 function parseCoach(raw) {
   const get = k => {
