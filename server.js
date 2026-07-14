@@ -47,20 +47,23 @@ If HOLD: output only "DECISION: HOLD" and nothing else. Per the playbook, FIRE w
 
 LINE delivery rules (MANDATORY, every card). You are directing an actor — the delivery
 must be precise enough to perform without thinking:
-- ONE sentence-length line, max ~28 words of SPOKEN text, verbatim.
+- ONE short line, max ~22 words of SPOKEN text, verbatim — short enough to glance and say in one breath.
 - || = one-beat pause exactly there. |||| = long pause, 2+ seconds, let it breathe.
   At least one pause if the line is longer than 6 words.
 - ↘ = the words after it drop lower and slower (authority, statement lands).
   ↗ = the words after it lift (genuine curious question). Use at least one.
 - *word* = the single most-stressed word in the line. Exactly one per card.
-- [vocal-cue] = an inline VOICE direction placed EXACTLY where the delivery changes, in square
-  brackets. This is AUDIO ONLY (the camera is off) — describe how it SOUNDS, never body language.
-  Vocabulary: [slower] [speed up] [softer] [near-whisper] [warmth up] [certainty]
+- NUMBERS & PRICES: write them the way they are SPOKEN, never as digits, and mark them [word by word]:
+  e.g. "seven ninety-seven a month" (NOT "$797"), "fifteen hundred to set up" (NOT "$1,500"). Never make the closer decode a number mid-sentence.
+- [vocal-cue] = how the words SOUND — works on every call, camera on or off, placed exactly where the
+  delivery shifts. Vocabulary: [slower] [speed up] [softer] [near-whisper] [warmth up] [certainty]
   [smile in your voice] [flat & serious] [let it hang] [word by word].
-  Use 1–2 per card, at the exact word where the shift happens. NEVER [smile] [lean in] [eye contact]
-  or anything visual — those are useless on a voice call.
-- TONE field = opening vocal state before the first word: EMOTION · pace · vocal quality.
-  e.g. "CALM · slow · warmth in the voice" / "CERTAIN · deliberate · smile in your voice" — never just "CALM".
+- [👤 body-cue] = an OPTIONAL body-language direction for when the camera is on — ALWAYS prefix with 👤
+  so it reads as visual. Vocabulary: [👤 lean in] [👤 warm smile] [👤 nod] [👤 sit back] [👤 open hands] [👤 hold eye contact].
+  Add one when it strengthens the moment; the closer ignores it if their camera is off.
+- Use 1–2 cues total per card (a vocal one, optionally a 👤 body one), each at the exact word it applies to.
+- TONE field = opening state before the first word: EMOTION · pace · vocal quality (+ optional body note).
+  e.g. "CALM · slow · warmth in the voice" / "CERTAIN · deliberate · smile in your voice, sit back" — never just "CALM".
 - If the right move is silence: LINE: … and TONE: SILENT — go quiet ~3 seconds, let them fill it
 - If DEAL MEMORY is present, USE it: reference what THIS prospect said in previous calls
   (their objections, commitments, stakeholders, stated pain) whenever it sharpens the move.
@@ -68,7 +71,7 @@ must be precise enough to perform without thinking:
 Example:
 DECISION: FIRE
 TONE: CALM · slow · soft eyes
-LINE: I hear you — |||| [softer] most owners told me the same… ↘ until they counted the *missed* calls. || [warmth up] ↗ What's one job worth to you?
+LINE: I hear you — |||| [softer] most owners said the same… ↘ until they counted the *missed* calls. || [👤 lean in] ↗ what's one job worth to you?
 WHY: price pushback; re-anchor on his stated pain
 TECH: label + reframe`;
 
@@ -123,6 +126,7 @@ function getSession(userId) {
       activeDealId: null, activeProductId: null, activeProductName: '',
       productContent: '', memory: '', dealState: null, dealName: '',
       lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
+      meLastAt: 0, pendingCard: null, cardFlushTimer: null,
       simIdx: 0
     };
     sessions.set(userId, s);
@@ -183,6 +187,27 @@ function buildSystemPrompt(s) {
 
 // ---- coach loop (streaming, per session) ----
 const CARD_COOLDOWN_MS = 2500;
+const REP_QUIET_MS = 650;   // rep considered "still delivering" if they spoke within this window
+const MAX_HOLD_MS = 6000;   // never hold a card longer than this
+
+// true if the closer ("ME") is mid-delivery right now — don't drop a new card on top of them
+function repTalking(s) { return Date.now() - s.meLastAt < REP_QUIET_MS; }
+
+// show a finished card, but WAIT until the closer isn't mid-sentence (fixes card-stacking)
+function showCard(s, card, since) {
+  if (!repTalking(s) || Date.now() - since > MAX_HOLD_MS) {
+    clearTimeout(s.cardFlushTimer); s.pendingCard = null;
+    s.lastCardAt = Date.now();
+    broadcast(s, card);
+    s.cards.push({ at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique });
+    logEvent(s, { type: 'card', tone: card.tone, line: card.line, why: card.why, technique: card.technique });
+    console.log('[coach]', s.userId.slice(0, 8), 'FIRE:', card.line);
+    return;
+  }
+  s.pendingCard = { card, since };
+  clearTimeout(s.cardFlushTimer);
+  s.cardFlushTimer = setTimeout(() => { const pc = s.pendingCard; if (pc) showCard(s, pc.card, pc.since); }, 150);
+}
 
 function parseCoach(raw) {
   const get = k => {
@@ -238,8 +263,9 @@ async function coach(s) {
         } catch {}
       }
       const p = parseCoach(raw);
-      if (p.decision === 'FIRE' && p.tone && p.line !== null && p.line !== lastSentLine) {
-        if (lastSentLine === null) s.lastCardAt = Date.now();
+      // stream partial words to the HUD only while the closer is NOT mid-sentence,
+      // so a new card never lands on top of a line they're still delivering
+      if (p.decision === 'FIRE' && p.tone && p.line !== null && p.line !== lastSentLine && !repTalking(s)) {
         lastSentLine = p.line;
         broadcast(s, { type: 'card-stream', tone: p.tone, line: p.line, why: '', technique: '', done: false });
       }
@@ -247,12 +273,8 @@ async function coach(s) {
 
     const p = parseCoach(raw);
     if (p.decision === 'FIRE' && p.line) {
-      s.lastCardAt = Date.now();
       const card = { type: 'card-stream', tone: p.tone || '', line: p.line, why: p.why || '', technique: p.tech || '', done: true };
-      broadcast(s, card);
-      s.cards.push({ at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique });
-      logEvent(s, { type: 'card', tone: card.tone, line: card.line, why: card.why, technique: card.technique });
-      console.log('[coach]', s.userId.slice(0, 8), 'FIRE:', p.line);
+      showCard(s, card, Date.now());   // holds until the closer stops talking
     } else {
       if (lastSentLine !== null) broadcast(s, { type: 'card-stream', tone: '', line: lastSentLine, why: '', technique: '', done: true });
       broadcast(s, { type: 'status', msg: 'coach: watching — no move needed' });
@@ -645,6 +667,8 @@ function relayAudio(clientWs, ch, s) {
     if (!alt) return;
     const text = (alt.transcript || '').trim();
     if (!text) return;
+    // note when the closer is speaking (interim OR final) so the coach can hold cards until they pause
+    if (ch === 'me') s.meLastAt = Date.now();
     if (d.is_final) {
       addTurn(s, ch, text);
       broadcast(s, { type: 'transcript', ch, text });
