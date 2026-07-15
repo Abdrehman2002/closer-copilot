@@ -46,6 +46,18 @@ export interface ClientDetail {
 
 export interface Product { id: string; name: string; content?: string }
 
+export type MoveType = 'waiting' | 'follow_up' | 'ready' | 'cold' | 'motion' | 'first'
+export interface NextMove {
+  id: string
+  name: string
+  company: string
+  type: MoveType
+  action: string
+  days: number | null
+  howToClose: string
+  score: number
+}
+
 export type Warmth = 'hot' | 'warming' | 'cold'
 export interface PipelineDeal {
   id: string

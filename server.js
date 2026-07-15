@@ -326,11 +326,17 @@ function parseBrain(md) {
     .filter(Boolean).slice(0, 5);
   const nextStep = sectionOf(md, 'Where we left off / agreed next step').replace(/^[-*]\s*/gm, '').trim();
   const howToClose = sectionOf(md, 'How to close them next call').replace(/^[-*]\s*/gm, '').trim();
+  const commitmentsUs = [], commitmentsThem = [];
+  for (const raw of sectionOf(md, 'Commitments').split('\n')) {
+    const t = raw.replace(/^[-*]\s*/, '').trim();
+    if (/^us\s*:/i.test(t)) commitmentsUs.push(t.replace(/^us\s*:\s*/i, ''));
+    else if (/^them\s*:/i.test(t)) commitmentsThem.push(t.replace(/^them\s*:\s*/i, ''));
+  }
   const hay = (snapshot + ' ' + md).toLowerCase();
   let warmth = 'warming';
   if (/\b(cold|stalled|hesitant|resistant|not ready|not interested|going nowhere|skeptical|unconvinced)\b/.test(hay)) warmth = 'cold';
   if (/\b(hot|ready to (close|buy|move|sign|start|go)|eager|excited|very interested|strong interest|keen|sold|warm)\b/.test(hay)) warmth = 'hot';
-  return { snapshot, openObjections, nextStep, howToClose, warmth };
+  return { snapshot, openObjections, nextStep, howToClose, warmth, commitmentsUs, commitmentsThem };
 }
 
 async function extractClientBrain(prevMemoryMd, turns, productName, clientName, company) {
@@ -606,6 +612,30 @@ const server = http.createServer(async (req, res) => {
           };
         });
         return sendJson(res, { deals: rows });
+      }
+
+      // ---- action queue: the closer's ranked "next moves" from deal memory ----
+      if (urlPath === '/api/next-moves' && req.method === 'GET') {
+        const deals = await sbRest('deals?select=id,name,company,status,memory_md,calls(created_at)&order=created_at.desc', jwt);
+        const now = Date.now();
+        const items = deals.filter(d => d.status === 'open').map(d => {
+          const b = parseBrain(d.memory_md || '');
+          const hasBrain = !!String(d.memory_md || '').trim();
+          const dates = (d.calls || []).map(c => c.created_at).filter(Boolean).sort();
+          const lastCallAt = dates.length ? dates[dates.length - 1] : null;
+          const days = lastCallAt ? Math.floor((now - new Date(lastCallAt).getTime()) / 86400000) : null;
+          let type, action;
+          if (b.commitmentsUs.length) { type = 'waiting'; action = b.commitmentsUs[0]; }
+          else if (b.commitmentsThem.length) { type = 'follow_up'; action = b.commitmentsThem[0]; }
+          else if (b.warmth === 'hot' || /\b(close|sign|start|book|ready|onboard|schedule|go live)\b/i.test(b.nextStep)) { type = 'ready'; action = b.nextStep || 'Objections are handled — ask for the business.'; }
+          else if (!hasBrain) { type = 'first'; action = 'Get their situation and pain on record.'; }
+          else if (days != null && days >= 4) { type = 'cold'; action = b.nextStep || 'Re-open the pain and earn the next call.'; }
+          else { type = 'motion'; action = b.nextStep || 'Keep the conversation moving.'; }
+          const base = { waiting: 100, follow_up: 90, ready: 80, cold: 60, motion: 30, first: 20 }[type];
+          return { id: d.id, name: d.name, company: d.company, type, action, days, howToClose: b.howToClose, score: base + Math.min(days || 0, 30) };
+        });
+        items.sort((a, b2) => b2.score - a.score);
+        return sendJson(res, { items });
       }
 
       // ---- call lifecycle ----
