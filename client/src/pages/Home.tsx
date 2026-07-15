@@ -1,173 +1,123 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, Tooltip, PieChart, Pie, Cell,
-} from 'recharts'
 import { api } from '@/lib/api'
-import type { HomeData, CallRow } from '@/lib/types'
-import { fmtDate } from '@/lib/format'
+import type { PipelineDeal, Warmth } from '@/lib/types'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Plus, ArrowUpRight } from 'lucide-react'
+import { Phone, AlertCircle, Target } from 'lucide-react'
 
-const DAYS = 14
+const relTime = (iso: string | null) => {
+  if (!iso) return 'not called yet'
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
+  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : `${days}d ago`
+}
+
+const columns: { warmth: Warmth; title: string; sub: string; dot: string }[] = [
+  { warmth: 'hot', title: 'Ready to close', sub: 'Push for the ask this call', dot: 'bg-success' },
+  { warmth: 'warming', title: 'Warming up', sub: 'Build value, handle the objection', dot: 'bg-primary' },
+  { warmth: 'cold', title: 'Needs a nudge', sub: 'Re-open the pain, earn the next call', dot: 'bg-muted-foreground/50' },
+]
 
 export default function Home() {
-  const [home, setHome] = useState<HomeData | null>(null)
-  const [calls, setCalls] = useState<CallRow[]>([])
+  const [deals, setDeals] = useState<PipelineDeal[] | null>(null)
   const navigate = useNavigate()
 
-  useEffect(() => {
-    api<HomeData>('/api/home').then(setHome)
-    api<{ calls: CallRow[] }>('/api/calls').then((r) => setCalls(r.calls || []))
-  }, [])
+  useEffect(() => { api<{ deals: PipelineDeal[] }>('/api/pipeline').then((r) => setDeals(r.deals || [])) }, [])
 
-  const series = useMemo(() => {
-    const buckets: { label: string; day: string; count: number }[] = []
-    const now = new Date()
-    for (let i = DAYS - 1; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 86400000)
-      buckets.push({ label: d.toLocaleDateString([], { weekday: 'short' }), day: d.toISOString().slice(0, 10), count: 0 })
-    }
-    for (const c of calls) {
-      const key = (c.created_at || '').slice(0, 10)
-      const b = buckets.find((x) => x.day === key)
-      if (b) b.count++
-    }
-    return buckets
-  }, [calls])
+  const grouped = useMemo(() => {
+    const g: Record<Warmth, PipelineDeal[]> = { hot: [], warming: [], cold: [] }
+    for (const d of deals || []) g[d.warmth].push(d)
+    return g
+  }, [deals])
 
-  const s = home?.stats
-  const closed = (s?.won ?? 0) + (s?.lost ?? 0)
-  const winRate = closed ? Math.round(((s?.won ?? 0) / closed) * 100) : 0
-  const pie = [
-    { name: 'Won', value: s?.won ?? 0, color: 'hsl(214 95% 52%)' },
-    { name: 'Open', value: s?.open ?? 0, color: 'hsl(220 13% 82%)' },
-    { name: 'Lost', value: s?.lost ?? 0, color: 'hsl(222 24% 20%)' },
-  ]
-  const pieTotal = pie.reduce((a, b) => a + b.value, 0)
-
-  const kpis = [
-    { label: 'Clients', value: s?.total ?? 0, sub: 'in your book' },
-    { label: 'Open deals', value: s?.open ?? 0, sub: 'active in pipeline' },
-    { label: 'Won', value: s?.won ?? 0, sub: `${closed} closed total` },
-    { label: 'Win rate', value: `${winRate}%`, sub: `${s?.won ?? 0} of ${closed || 0} closed` },
-  ]
+  const isEmpty = deals && deals.length === 0
 
   return (
-    <div className="mx-auto max-w-[1160px] px-8 py-7">
+    <div className="mx-auto max-w-[1200px] px-8 py-7">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold tracking-tight">Overview</h2>
-          <p className="text-sm text-muted-foreground">Your pipeline and coaching activity at a glance.</p>
+          <h2 className="text-xl font-bold tracking-tight">Your close board</h2>
+          <p className="text-sm text-muted-foreground">Who's ready, what's blocking them, and the next move — sorted by how close they are.</p>
         </div>
-        <Button onClick={() => navigate('/new')}><Plus className="h-4 w-4" /> New Call</Button>
+        <Button onClick={() => navigate('/new')}><Phone className="h-4 w-4" /> New Call</Button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        {/* KPI row */}
-        <div className="grid grid-cols-2 divide-x divide-y divide-border lg:grid-cols-4 lg:divide-y-0">
-          {kpis.map((k) => (
-            <div key={k.label} className="p-5">
-              <div className="text-[13px] text-muted-foreground">{k.label}</div>
-              <div className="mt-2 text-[30px] font-extrabold leading-none tracking-tight">{home ? k.value : '—'}</div>
-              <div className="mt-2 text-xs text-muted-foreground">{k.sub}</div>
-            </div>
-          ))}
+      {!deals && <div className="text-sm text-muted-foreground">Loading your pipeline…</div>}
+
+      {isEmpty && (
+        <div className="rounded-xl border border-dashed border-border bg-card px-6 py-16 text-center">
+          <Target className="mx-auto mb-3 h-6 w-6 text-muted-foreground" />
+          <div className="font-medium">No open deals yet</div>
+          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">Start a call and pick a client — every deal you work shows up here, sorted by how close it is to a yes.</p>
+          <Button className="mt-4" onClick={() => navigate('/new')}>Start your first call</Button>
         </div>
+      )}
 
-        {/* charts row */}
-        <div className="grid divide-y divide-border border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-          <div className="p-5">
-            <h3 className="font-semibold">Calls, last 14 days</h3>
-            <p className="mb-4 text-sm text-muted-foreground">Daily coaching sessions.</p>
-            <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={series} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-                  <XAxis dataKey="label" tickLine={false} axisLine={false}
-                    tick={{ fontSize: 11, fill: 'hsl(220 9% 46%)' }} interval={1} />
-                  <Tooltip cursor={{ fill: 'hsl(220 14% 96%)' }}
-                    contentStyle={{ borderRadius: 8, border: '1px solid hsl(220 13% 91%)', fontSize: 12 }}
-                    labelStyle={{ color: 'hsl(222 24% 11%)' }} />
-                  <Bar dataKey="count" fill="hsl(214 95% 52%)" radius={[3, 3, 0, 0]} maxBarSize={26} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="p-5">
-            <h3 className="font-semibold">Pipeline</h3>
-            <p className="mb-4 text-sm text-muted-foreground">How your deals are split.</p>
-            <div className="flex items-center gap-6">
-              <div className="h-[180px] w-[180px] shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={pie} dataKey="value" nameKey="name" innerRadius={54} outerRadius={82} paddingAngle={2} stroke="none">
-                      {pie.map((e) => <Cell key={e.name} fill={e.color} />)}
-                    </Pie>
-                    <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid hsl(220 13% 91%)', fontSize: 12 }} />
-                  </PieChart>
-                </ResponsiveContainer>
+      {deals && deals.length > 0 && (
+        <div className="grid gap-5 lg:grid-cols-3">
+          {columns.map((col) => (
+            <div key={col.warmth} className="flex flex-col">
+              <div className="mb-3 flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${col.dot}`} />
+                <h3 className="text-sm font-semibold">{col.title}</h3>
+                <span className="text-xs text-muted-foreground">{grouped[col.warmth].length}</span>
               </div>
-              <div className="space-y-3">
-                {pie.map((p) => (
-                  <div key={p.name} className="flex items-center gap-2.5">
-                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: p.color }} />
-                    <span className="text-sm font-medium">{p.name}</span>
-                    <span className="text-sm text-muted-foreground">
-                      {p.value}{pieTotal ? ` · ${Math.round((p.value / pieTotal) * 100)}%` : ''}
-                    </span>
-                  </div>
+              <p className="mb-3 text-xs text-muted-foreground">{col.sub}</p>
+              <div className="flex flex-col gap-3">
+                {grouped[col.warmth].length === 0 && (
+                  <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">Nobody here right now.</div>
+                )}
+                {grouped[col.warmth].map((d) => (
+                  <DealCard key={d.id} d={d} onCall={() => navigate(`/new?client=${d.id}`)} />
                 ))}
               </div>
             </div>
-          </div>
+          ))}
         </div>
-
-        {/* recent row */}
-        <div className="grid divide-y divide-border border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-          <div className="p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-semibold">Recent clients</h3>
-              <Link to="/clients" className="flex items-center gap-1 text-xs text-primary hover:underline">View all <ArrowUpRight className="h-3 w-3" /></Link>
-            </div>
-            <div className="flex flex-col">
-              {home?.recentClients.length ? home.recentClients.map((c) => (
-                <Link key={c.id} to={`/clients/${c.id}`}
-                  className="-mx-2 flex items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-secondary">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{c.name}</div>
-                    <div className="truncate text-xs text-muted-foreground">{c.company || '—'} · {c.calls} call{c.calls === 1 ? '' : 's'}</div>
-                  </div>
-                  <Badge variant={c.status} className="ml-auto">{c.status}</Badge>
-                </Link>
-              )) : <Empty text="No clients yet — start a call to create one." />}
-            </div>
-          </div>
-
-          <div className="p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-semibold">Recent calls</h3>
-              <Link to="/calls" className="flex items-center gap-1 text-xs text-primary hover:underline">View all <ArrowUpRight className="h-3 w-3" /></Link>
-            </div>
-            <div className="flex flex-col">
-              {home?.recentCalls.length ? home.recentCalls.map((c) => (
-                <Link key={c.id} to={`/calls/${c.id}`}
-                  className="-mx-2 flex items-center gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-secondary">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{c.client}</div>
-                    <div className="truncate text-xs text-muted-foreground">{c.product_name || '—'} · {fmtDate(c.created_at)}</div>
-                  </div>
-                </Link>
-              )) : <Empty text="No calls yet." />}
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   )
 }
 
-function Empty({ text }: { text: string }) {
-  return <div className="py-8 text-center text-sm text-muted-foreground">{text}</div>
+function DealCard({ d, onCall }: { d: PipelineDeal; onCall: () => void }) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link to={`/clients/${d.id}`} className="font-semibold leading-tight hover:underline">{d.name}</Link>
+          {d.company && <div className="truncate text-xs text-muted-foreground">{d.company}</div>}
+        </div>
+        <span className="shrink-0 text-[11px] text-muted-foreground">{d.calls} call{d.calls === 1 ? '' : 's'}</span>
+      </div>
+
+      {d.nextStep ? (
+        <div className="mt-3 text-sm leading-snug"><span className="text-muted-foreground">Next: </span>{d.nextStep}</div>
+      ) : (
+        <div className="mt-3 text-sm text-muted-foreground">First call — get their pain on record.</div>
+      )}
+
+      {d.howToClose && (
+        <div className="mt-2 flex items-start gap-1.5 rounded-md bg-secondary px-2.5 py-2 text-[13px] leading-snug text-foreground/90">
+          <Target className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> {d.howToClose}
+        </div>
+      )}
+
+      {d.openObjections.length > 0 && (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <AlertCircle className="h-3 w-3" /> Open objections
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {d.openObjections.map((o, i) => (
+              <span key={i} className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700">{o}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+        <span className="text-xs text-muted-foreground">Last: {relTime(d.lastCallAt)}</span>
+        <Button size="sm" onClick={onCall}><Phone className="h-3.5 w-3.5" /> Call</Button>
+      </div>
+    </div>
+  )
 }

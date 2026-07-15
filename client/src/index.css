@@ -44,3 +44,12 @@
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: hsl(220 13% 85%); border-radius: 10px; border: 2px solid hsl(var(--background)); }
 ::-webkit-scrollbar-thumb:hover { background: hsl(220 13% 76%); }
+
+/* coaching-card delivery marks */
+.cl-line b { color: #000; text-decoration: underline; text-decoration-color: hsl(var(--primary)); text-underline-offset: 3px; font-weight: 700; }
+.cl-pause { color: hsl(var(--primary)); font-weight: 800; padding: 0 3px; }
+.cl-pause-long { font-size: 12px; background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); border-radius: 5px; padding: 2px 7px; vertical-align: middle; }
+.cl-cue { font-size: 12px; font-style: italic; font-weight: 500; color: #475569; background: hsl(220 14% 94%); border-radius: 5px; padding: 1px 8px; margin: 0 3px; vertical-align: middle; white-space: nowrap; }
+.cl-cue.cl-body { color: hsl(214 80% 42%); background: hsl(214 95% 94%); font-style: normal; }
+.cl-down { color: hsl(214 95% 52%); }
+.cl-up { color: #b45309; }

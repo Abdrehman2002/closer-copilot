@@ -308,6 +308,31 @@ function snapshotOf(md) {
   return (first || '').replace(/^#+\s*/, '').replace(/\*\*/g, '').slice(0, 160);
 }
 
+// pull the section body under a "## Heading" out of a Client Brain
+function sectionOf(md, heading) {
+  const re = new RegExp('##\\s*' + heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\n([\\s\\S]*?)(?=\\n##\\s|$)', 'i');
+  const m = String(md || '').match(re);
+  return m ? m[1].trim() : '';
+}
+
+// read the sales-actionable signals out of a Client Brain for the close board
+function parseBrain(md) {
+  md = String(md || '');
+  const snapshot = (md.match(/\*\*Snapshot:\*\*\s*(.+)/i) || [])[1]?.trim() || '';
+  const objSection = sectionOf(md, 'Objections raised');
+  const openObjections = objSection.split('\n')
+    .filter(l => /^[-*]/.test(l.trim()) && /open/i.test(l))
+    .map(l => l.replace(/^[-*]\s*/, '').replace(/\s*[—-]\s*status:.*$/i, '').trim())
+    .filter(Boolean).slice(0, 5);
+  const nextStep = sectionOf(md, 'Where we left off / agreed next step').replace(/^[-*]\s*/gm, '').trim();
+  const howToClose = sectionOf(md, 'How to close them next call').replace(/^[-*]\s*/gm, '').trim();
+  const hay = (snapshot + ' ' + md).toLowerCase();
+  let warmth = 'warming';
+  if (/\b(cold|stalled|hesitant|resistant|not ready|not interested|going nowhere|skeptical|unconvinced)\b/.test(hay)) warmth = 'cold';
+  if (/\b(hot|ready to (close|buy|move|sign|start|go)|eager|excited|very interested|strong interest|keen|sold|warm)\b/.test(hay)) warmth = 'hot';
+  return { snapshot, openObjections, nextStep, howToClose, warmth };
+}
+
 async function extractClientBrain(prevMemoryMd, turns, productName, clientName, company) {
   const transcript = turns.map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text).join('\n');
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -565,6 +590,22 @@ const server = http.createServer(async (req, res) => {
           recentClients: clients.map(d => ({ id: d.id, name: d.name, company: d.company, status: d.status, calls: (d.calls && d.calls[0] && d.calls[0].count) || 0 })),
           recentCalls: calls.map(c => ({ id: c.id, created_at: c.created_at, summary: c.summary, product_name: c.product_name, client: c.deals ? c.deals.name : '(no client)' }))
         });
+      }
+
+      // ---- close board: open deals with sales intelligence from the Client Brain ----
+      if (urlPath === '/api/pipeline' && req.method === 'GET') {
+        const deals = await sbRest('deals?select=id,name,company,status,memory_md,calls(created_at)&order=created_at.desc', jwt);
+        const rows = deals.filter(d => d.status === 'open').map(d => {
+          const dates = (d.calls || []).map(c => c.created_at).filter(Boolean).sort();
+          return {
+            id: d.id, name: d.name, company: d.company,
+            calls: (d.calls || []).length,
+            lastCallAt: dates.length ? dates[dates.length - 1] : null,
+            hasBrain: !!String(d.memory_md || '').trim(),
+            ...parseBrain(d.memory_md || '')
+          };
+        });
+        return sendJson(res, { deals: rows });
       }
 
       // ---- call lifecycle ----

@@ -46,6 +46,21 @@ export interface ClientDetail {
 
 export interface Product { id: string; name: string; content?: string }
 
+export type Warmth = 'hot' | 'warming' | 'cold'
+export interface PipelineDeal {
+  id: string
+  name: string
+  company: string
+  calls: number
+  lastCallAt: string | null
+  hasBrain: boolean
+  snapshot: string
+  openObjections: string[]
+  nextStep: string
+  howToClose: string
+  warmth: Warmth
+}
+
 export interface HomeData {
   email: string
   stats: { total: number; open: number; won: number; lost: number }
