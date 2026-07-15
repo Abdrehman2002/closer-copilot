@@ -62,6 +62,15 @@ function CoachDemo() {
 
 const chips = ['Live whisper', 'Deal memory', 'Your playbooks']
 
+function Wordmark() {
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="h-[22px] w-[22px] rounded-[7px] bg-primary shadow-[0_4px_14px_hsl(var(--primary)/0.5)]" />
+      <span className="text-[17px] font-semibold tracking-tight">Closer <span className="font-bold">Copilot</span></span>
+    </div>
+  )
+}
+
 export default function Landing() {
   const [email, setEmail] = useState('')
   const [pass, setPass] = useState('')
@@ -87,15 +96,12 @@ export default function Landing() {
         <div className="pointer-events-none absolute -left-20 -top-24 h-[380px] w-[380px] rounded-full bg-primary/10 blur-[90px]" />
         <div className="pointer-events-none absolute -bottom-28 right-0 h-[340px] w-[340px] rounded-full bg-primary/[0.08] blur-[90px]" />
 
-        <div className="relative z-10 flex items-center gap-2.5">
-          <div className="h-5 w-5 rounded-[6px] bg-primary shadow-[0_4px_14px_hsl(var(--primary)/0.5)]" />
-          <span className="text-[15px] font-semibold tracking-tight text-foreground">Closer <span className="font-bold">Copilot</span></span>
-        </div>
+        <div className="relative z-10"><Wordmark /></div>
 
-        <div className="relative z-10 flex flex-col items-center">
-          <h1 className="mb-1 self-start text-[26px] font-extrabold leading-tight tracking-tight">Know exactly what to say —<br /><span className="text-primary">live, on every call.</span></h1>
-          <p className="mb-8 self-start text-sm text-muted-foreground">Whispered coaching that hears the objection and hands you the line.</p>
-          <CoachDemo />
+        <div className="relative z-10 max-w-[440px]">
+          <h1 className="text-[26px] font-extrabold leading-tight tracking-tight">Know exactly what to say —<br /><span className="text-primary">live, on every call.</span></h1>
+          <p className="mt-2 text-sm text-muted-foreground">Whispered coaching that hears the objection and hands you the line.</p>
+          <div className="mt-8"><CoachDemo /></div>
         </div>
 
         <div className="relative z-10 flex flex-wrap gap-2">
@@ -110,10 +116,7 @@ export default function Landing() {
       {/* FORM (right) */}
       <div className="flex items-center justify-center bg-background px-6 py-10">
         <div className="w-full max-w-sm">
-          <div className="mb-8 flex items-center gap-2.5 md:hidden">
-            <div className="h-5 w-5 rounded-[6px] bg-primary" />
-            <span className="text-[15px] font-semibold tracking-tight">Closer Copilot</span>
-          </div>
+          <div className="mb-8"><Wordmark /></div>
           <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
           <p className="mt-1.5 text-sm text-muted-foreground">Sign in to your workspace.</p>
 
