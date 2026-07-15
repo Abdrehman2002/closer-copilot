@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { DetailSkeleton } from '@/components/Skeleton'
 import { ArrowLeft } from 'lucide-react'
 
 export default function PlaybookDetail() {
@@ -23,7 +24,7 @@ export default function PlaybookDetail() {
   const save = async () => { await api('/api/products', { id, name, content }); setSaved(true) }
   const del = async () => { if (confirm('Delete this playbook?')) { await api(`/api/products/${id}`, undefined, 'DELETE'); navigate('/playbooks') } }
 
-  if (!loaded) return <div className="p-8 text-sm text-muted-foreground">Loading…</div>
+  if (!loaded) return <DetailSkeleton />
 
   return (
     <div className="mx-auto max-w-[820px] px-8 py-7">

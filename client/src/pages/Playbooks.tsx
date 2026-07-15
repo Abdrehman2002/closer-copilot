@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { Product } from '@/lib/types'
 import { Button } from '@/components/ui/button'
+import { ListSkeleton } from '@/components/Skeleton'
 import { Plus, Layers } from 'lucide-react'
 
 export default function Playbooks() {
@@ -20,17 +21,20 @@ export default function Playbooks() {
         <Button onClick={() => navigate('/playbooks/new')}><Plus className="h-4 w-4" /> Add playbook</Button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        {!products && <div className="p-6 text-sm text-muted-foreground">Loading…</div>}
-        {products && products.length === 0 && <div className="p-10 text-center text-sm text-muted-foreground">No playbooks yet — add your first.</div>}
-        {products?.map((p, i) => (
-          <Link key={p.id} to={`/playbooks/${p.id}`}
-            className={`flex items-center gap-3 px-5 py-4 transition-colors hover:bg-secondary ${i > 0 ? 'border-t border-border' : ''}`}>
-            <Layers className="h-4 w-4 text-muted-foreground" />
-            <span className="font-medium">{p.name}</span>
-          </Link>
-        ))}
-      </div>
+      {!products ? (
+        <ListSkeleton rows={3} />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          {products.length === 0 && <div className="p-10 text-center text-sm text-muted-foreground">No playbooks yet — add your first.</div>}
+          {products.map((p, i) => (
+            <Link key={p.id} to={`/playbooks/${p.id}`}
+              className={`flex items-center gap-3 px-5 py-4 transition-colors hover:bg-secondary ${i > 0 ? 'border-t border-border' : ''}`}>
+              <Layers className="h-4 w-4 text-muted-foreground" />
+              <span className="font-medium">{p.name}</span>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

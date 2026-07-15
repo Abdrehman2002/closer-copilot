@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import type { ClientRow } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { ListSkeleton } from '@/components/Skeleton'
 import { Plus } from 'lucide-react'
 
 export default function Clients() {
@@ -27,21 +28,24 @@ export default function Clients() {
         <Button onClick={add}><Plus className="h-4 w-4" /> Add client</Button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        {!clients && <div className="p-6 text-sm text-muted-foreground">Loading…</div>}
-        {clients && clients.length === 0 && <div className="p-10 text-center text-sm text-muted-foreground">No clients yet.</div>}
-        {clients?.map((c, i) => (
-          <Link key={c.id} to={`/clients/${c.id}`}
-            className={`flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-secondary ${i > 0 ? 'border-t border-border' : ''}`}>
-            <div className="min-w-0">
-              <div className="truncate font-medium">{c.name}</div>
-              <div className="truncate text-xs text-muted-foreground">{c.company || '—'}</div>
-            </div>
-            <span className="ml-auto text-xs text-muted-foreground">{c.calls} call{c.calls === 1 ? '' : 's'}</span>
-            <Badge variant={c.status}>{c.status}</Badge>
-          </Link>
-        ))}
-      </div>
+      {!clients ? (
+        <ListSkeleton />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          {clients.length === 0 && <div className="p-10 text-center text-sm text-muted-foreground">No clients yet.</div>}
+          {clients.map((c, i) => (
+            <Link key={c.id} to={`/clients/${c.id}`}
+              className={`flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-secondary ${i > 0 ? 'border-t border-border' : ''}`}>
+              <div className="min-w-0">
+                <div className="truncate font-medium">{c.name}</div>
+                <div className="truncate text-xs text-muted-foreground">{c.company || '—'}</div>
+              </div>
+              <span className="ml-auto text-xs text-muted-foreground">{c.calls} call{c.calls === 1 ? '' : 's'}</span>
+              <Badge variant={c.status}>{c.status}</Badge>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import type { CallDetail as Call } from '@/lib/types'
 import { fmtDate, fmtDur } from '@/lib/format'
 import { CoachingCard } from '@/lib/coaching'
+import { DetailSkeleton } from '@/components/Skeleton'
 import { ArrowLeft } from 'lucide-react'
 
 export default function CallDetail() {
@@ -11,7 +12,7 @@ export default function CallDetail() {
   const [call, setCall] = useState<Call | null | undefined>(undefined)
   useEffect(() => { api<{ call: Call | null }>(`/api/calls/${id}`).then((r) => setCall(r.call)) }, [id])
 
-  if (call === undefined) return <div className="p-8 text-sm text-muted-foreground">Loading…</div>
+  if (call === undefined) return <DetailSkeleton />
   if (!call) return <div className="p-8 text-sm text-muted-foreground">Not found.</div>
 
   return (

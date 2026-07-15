@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, Suspense, lazy } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { sb } from '@/lib/supabase'
@@ -7,16 +7,20 @@ import type { Me } from '@/lib/types'
 import Landing from '@/pages/Landing'
 import Onboarding from '@/pages/Onboarding'
 import AppShell from '@/components/AppShell'
-import Home from '@/pages/Home'
-import Clients from '@/pages/Clients'
-import ClientDetail from '@/pages/ClientDetail'
-import Calls from '@/pages/Calls'
-import CallDetail from '@/pages/CallDetail'
-import Playbooks from '@/pages/Playbooks'
-import PlaybookNew from '@/pages/PlaybookNew'
-import PlaybookDetail from '@/pages/PlaybookDetail'
-import NewCall from '@/pages/NewCall'
-import LiveCall from '@/pages/LiveCall'
+import { PageSkeleton } from '@/components/Skeleton'
+
+// Route-level code splitting: the shell/auth gate loads eagerly, everything
+// behind sign-in loads on demand so the first paint (login/onboarding) stays light.
+const Home = lazy(() => import('@/pages/Home'))
+const Clients = lazy(() => import('@/pages/Clients'))
+const ClientDetail = lazy(() => import('@/pages/ClientDetail'))
+const Calls = lazy(() => import('@/pages/Calls'))
+const CallDetail = lazy(() => import('@/pages/CallDetail'))
+const Playbooks = lazy(() => import('@/pages/Playbooks'))
+const PlaybookNew = lazy(() => import('@/pages/PlaybookNew'))
+const PlaybookDetail = lazy(() => import('@/pages/PlaybookDetail'))
+const NewCall = lazy(() => import('@/pages/NewCall'))
+const LiveCall = lazy(() => import('@/pages/LiveCall'))
 
 const Loading = () => <div className="grid h-screen place-items-center text-sm text-muted-foreground">Loading…</div>
 
@@ -43,16 +47,16 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppShell email={session.user.email ?? ''} />}>
-          <Route path="/" element={<Home />} />
-          <Route path="/clients" element={<Clients />} />
-          <Route path="/clients/:id" element={<ClientDetail />} />
-          <Route path="/calls" element={<Calls />} />
-          <Route path="/calls/:id" element={<CallDetail />} />
-          <Route path="/playbooks" element={<Playbooks />} />
-          <Route path="/playbooks/new" element={<PlaybookNew />} />
-          <Route path="/playbooks/:id" element={<PlaybookDetail />} />
-          <Route path="/new" element={<NewCall />} />
-          <Route path="/live" element={<LiveCall />} />
+          <Route path="/" element={<Suspense fallback={<PageSkeleton />}><Home /></Suspense>} />
+          <Route path="/clients" element={<Suspense fallback={<PageSkeleton />}><Clients /></Suspense>} />
+          <Route path="/clients/:id" element={<Suspense fallback={<PageSkeleton />}><ClientDetail /></Suspense>} />
+          <Route path="/calls" element={<Suspense fallback={<PageSkeleton />}><Calls /></Suspense>} />
+          <Route path="/calls/:id" element={<Suspense fallback={<PageSkeleton />}><CallDetail /></Suspense>} />
+          <Route path="/playbooks" element={<Suspense fallback={<PageSkeleton />}><Playbooks /></Suspense>} />
+          <Route path="/playbooks/new" element={<Suspense fallback={<PageSkeleton />}><PlaybookNew /></Suspense>} />
+          <Route path="/playbooks/:id" element={<Suspense fallback={<PageSkeleton />}><PlaybookDetail /></Suspense>} />
+          <Route path="/new" element={<Suspense fallback={<PageSkeleton />}><NewCall /></Suspense>} />
+          <Route path="/live" element={<Suspense fallback={<PageSkeleton />}><LiveCall /></Suspense>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

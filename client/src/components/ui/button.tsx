@@ -3,8 +3,11 @@ import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
+// Buttons under 44px keep their compact visual size but gain an invisible
+// "hit slop" pseudo-element so the actual tappable area still meets the
+// 44x44 touch-target minimum (WCAG 2.5.5 / mobile UX guidance).
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
+  "relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -16,10 +19,10 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
+        default: "h-9 px-4 py-2 after:absolute after:-inset-y-[3.5px] after:inset-x-0 after:content-['']",
+        sm: "h-8 rounded-md px-3 text-xs after:absolute after:-inset-[6px] after:content-['']",
         lg: "h-11 rounded-md px-6 text-[15px]",
-        icon: "h-9 w-9",
+        icon: "h-9 w-9 after:absolute after:-inset-[4px] after:content-['']",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

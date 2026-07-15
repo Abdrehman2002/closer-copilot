@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import type { DashboardData, NextMove, MoveType } from '@/lib/types'
 import { Button } from '@/components/ui/button'
+import { DashboardSkeleton } from '@/components/Skeleton'
 import {
   Phone, Clock3, PhoneCall, Target, Snowflake, ArrowRight, UserPlus,
   CheckCircle2, BookOpen, Radar, Lightbulb, Trophy, Plus, Zap,
@@ -36,6 +37,8 @@ export default function Home() {
     for (const m of d?.moves || []) if (m.id !== focusId) g[m.type].push(m)
     return g
   }, [d])
+
+  if (!d) return <DashboardSkeleton />
 
   return (
     <div className="mx-auto max-w-[1180px] px-8 py-7">

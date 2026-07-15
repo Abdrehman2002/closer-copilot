@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Brain } from '@/components/Brain'
+import { DetailSkeleton } from '@/components/Skeleton'
 import { ArrowLeft, Download, Phone } from 'lucide-react'
 
 export default function ClientDetail() {
@@ -19,7 +20,7 @@ export default function ClientDetail() {
   const load = () => api<{ client: CDetail }>(`/api/clients/${id}`).then((r) => { setC(r.client); setNotes(r.client?.notes || '') })
   useEffect(() => { load() }, [id])
 
-  if (c === undefined) return <div className="p-8 text-sm text-muted-foreground">Loading…</div>
+  if (c === undefined) return <DetailSkeleton />
   if (!c) return <div className="p-8 text-sm text-muted-foreground">Not found.</div>
 
   const setStatus = async (status: Status) => { await api(`/api/clients/${id}`, { status }, 'PATCH'); load() }
