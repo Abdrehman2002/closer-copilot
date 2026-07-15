@@ -12,7 +12,7 @@
     --card-foreground: 222 24% 11%;
     --popover: 0 0% 100%;
     --popover-foreground: 222 24% 11%;
-    --primary: 214 95% 52%;
+    --primary: 214 90% 48%;
     --primary-foreground: 0 0% 100%;
     --secondary: 220 14% 96%;
     --secondary-foreground: 222 24% 11%;
@@ -20,13 +20,13 @@
     --muted-foreground: 220 9% 46%;
     --accent: 220 14% 96%;
     --accent-foreground: 222 24% 11%;
-    --destructive: 0 72% 51%;
+    --destructive: 0 72% 48%;
     --destructive-foreground: 0 0% 100%;
     --success: 152 58% 38%;
     --success-foreground: 0 0% 100%;
     --border: 220 13% 91%;
     --input: 220 13% 88%;
-    --ring: 214 95% 52%;
+    --ring: 214 90% 48%;
     --radius: 0.6rem;
   }
 
@@ -44,6 +44,9 @@
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: hsl(220 13% 85%); border-radius: 10px; border: 2px solid hsl(var(--background)); }
 ::-webkit-scrollbar-thumb:hover { background: hsl(220 13% 76%); }
+
+/* keyboard focus for clickable links / rows (dashboard moves, list rows, nav) */
+a:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; border-radius: 10px; }
 
 /* coaching-card delivery marks */
 .cl-line b { color: #000; text-decoration: underline; text-decoration-color: hsl(var(--primary)); text-underline-offset: 3px; font-weight: 700; }
