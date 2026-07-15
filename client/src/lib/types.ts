@@ -20,7 +20,9 @@ export interface CallRow {
 }
 
 export interface Turn { ch: 'me' | 'prospect'; text: string }
-export interface CardData { tone: string; line: string; why: string; technique: string; at?: number }
+export interface CardData { id?: number; tone: string; line: string; why: string; technique: string; at?: number; used?: boolean | null }
+
+export type Outcome = 'unknown' | 'closed' | 'lost' | 'follow_up'
 
 export interface CallDetail {
   id: string
@@ -31,6 +33,9 @@ export interface CallDetail {
   deal_id: string | null
   transcript: Turn[]
   cards: CardData[]
+  outcome?: Outcome
+  saved_deal?: boolean | null
+  saved_deal_note?: string
   deals?: { name: string; company: string } | null
 }
 
@@ -92,14 +97,29 @@ export interface HomeData {
 export interface Me {
   email: string
   name: string
+  tone: string
+  framework: string
+  signature_phrases: string
+  never_say: string
   hasProducts: boolean
   hasClients: boolean
   productTemplate: string
+}
+
+export interface Metrics {
+  totalCalls: number
+  lineAcceptancePct: number | null
+  linesRated: number
+  savedDeals: number
+  closeRatePct: number | null
+  decidedCalls: number
+  activeDays: number
+  last14: { day: string; calls: number }[]
 }
 
 // live-call streaming event from /events
 export type LiveEvent =
   | { type: 'transcript'; ch: 'me' | 'prospect'; text: string }
   | { type: 'interim'; ch: 'me' | 'prospect'; text: string }
-  | { type: 'card-stream'; tone: string; line: string; why: string; technique: string; done: boolean }
+  | { type: 'card-stream'; id?: number; tone: string; line: string; why: string; technique: string; done: boolean }
   | { type: 'status'; msg: string }

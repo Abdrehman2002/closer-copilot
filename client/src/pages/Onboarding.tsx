@@ -4,19 +4,28 @@ import { api } from '@/lib/api'
 import { Interview } from '@/components/Interview'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 
 export default function Onboarding({ me, onComplete }: { me: Me; onComplete: () => void }) {
-  const steps = ['name', ...(!me.hasProducts ? ['playbook'] : []), ...(!me.hasClients ? ['client'] : []), 'done']
+  const steps = ['name', 'closer', ...(!me.hasProducts ? ['playbook'] : []), ...(!me.hasClients ? ['client'] : []), 'done']
   const [i, setI] = useState(0)
   const next = () => setI((n) => n + 1)
   const step = steps[i]
 
   const [name, setName] = useState(me.name || '')
+  const [tone, setTone] = useState('')
+  const [framework, setFramework] = useState('')
+  const [phrases, setPhrases] = useState('')
+  const [neverSay, setNeverSay] = useState('')
   const [cName, setCName] = useState('')
   const [cCompany, setCCompany] = useState('')
   const [err, setErr] = useState('')
 
   const saveName = async () => { if (!name.trim()) return setErr('Enter your name'); await api('/api/profile', { name: name.trim() }); next() }
+  const saveCloser = async () => {
+    await api('/api/profile', { name: name.trim(), tone, framework, signature_phrases: phrases, never_say: neverSay })
+    next()
+  }
   const saveClient = async () => { if (!cName.trim()) return setErr('Enter a client name'); await api('/api/clients', { name: cName.trim(), company: cCompany.trim() }); next() }
 
   return (
@@ -35,6 +44,35 @@ export default function Onboarding({ me, onComplete }: { me: Me; onComplete: () 
             {err && <p className="mb-2 text-[13px] text-destructive">{err}</p>}
             <Input autoFocus value={name} placeholder="Your name" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveName() }} />
             <Button className="mt-4 w-full" size="lg" onClick={saveName}>Continue</Button>
+          </div>
+        )}
+
+        {step === 'closer' && (
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">How do you sell?</h1>
+            <p className="mb-5 mt-1 text-sm text-muted-foreground">So the coach sounds like YOU, not a generic script. Edit this anytime in Settings.</p>
+            <div className="space-y-3">
+              <div>
+                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Your tone</div>
+                <Input value={tone} onChange={(e) => setTone(e.target.value)} placeholder="e.g. calm and consultative, never pushy" />
+              </div>
+              <div>
+                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Sales framework / style you run</div>
+                <Input value={framework} onChange={(e) => setFramework(e.target.value)} placeholder="e.g. Chris Voss tactical empathy + question-led" />
+              </div>
+              <div>
+                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Phrases you like to use</div>
+                <Textarea value={phrases} onChange={(e) => setPhrases(e.target.value)} placeholder="e.g. makes sense? / totally fair" style={{ minHeight: 60 }} />
+              </div>
+              <div>
+                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Never say</div>
+                <Textarea value={neverSay} onChange={(e) => setNeverSay(e.target.value)} placeholder="e.g. trust me / limited time only" style={{ minHeight: 60 }} />
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Button size="lg" onClick={saveCloser}>Continue</Button>
+              <Button size="lg" variant="ghost" onClick={next}>Skip for now</Button>
+            </div>
           </div>
         )}
 

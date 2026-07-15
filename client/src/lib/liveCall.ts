@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, token } from './api'
-import type { Turn, CardData } from './types'
+import type { Turn, CardData, Outcome } from './types'
 import { renderLineHtml } from './coaching'
 
 type State = {
@@ -10,18 +10,20 @@ type State = {
   dealId: string | null
   productId: string | null
   brief: string | null
+  battlePlan: string | null
   clientName: string | null
   productName: string | null
   transcript: Turn[]
   cards: CardData[]
   streaming: CardData | null
   interim: string
+  awaitingOutcome: boolean   // capture stopped, End Call modal should show
 }
 
 const state: State = {
   active: false, status: '', srvOn: false,
-  dealId: null, productId: null, brief: null, clientName: null, productName: null,
-  transcript: [], cards: [], streaming: null, interim: '',
+  dealId: null, productId: null, brief: null, battlePlan: null, clientName: null, productName: null,
+  transcript: [], cards: [], streaming: null, interim: '', awaitingOutcome: false,
 }
 
 const listeners = new Set<() => void>()
@@ -44,7 +46,7 @@ function pushTurn(ch: 'me' | 'prospect', text: string) {
 }
 function pushCard(c: CardData & { done: boolean }) {
   if (!c.done) state.streaming = { tone: c.tone, line: c.line, why: '', technique: '' }
-  else { state.streaming = null; if (c.line) state.cards = [...state.cards, c] }
+  else { state.streaming = null; if (c.line) state.cards = [...state.cards, { ...c, used: null }] }
   emit()
   updatePip(c)
 }
@@ -73,15 +75,22 @@ function pipe(stream: MediaStream, ch: 'me' | 'prospect', t: string) {
   socks.push(ws); recs.push(rec)
 }
 
+function stopMedia() {
+  recs.forEach((r) => { try { if (r.state !== 'inactive') r.stop() } catch { /* noop */ } })
+  socks.forEach((w) => { try { w.close() } catch { /* noop */ } })
+  streams.forEach((s) => s.getTracks().forEach((t) => t.stop()))
+  recs = []; socks = []; streams = []
+}
+
 export const liveCall = {
   get: () => state,
   subscribe(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn) },
 
   async start(dealId: string, productId: string) {
-    const r = await api<{ brief: string | null; clientName: string | null; productName: string | null }>(
+    const r = await api<{ brief: string | null; battlePlan: string | null; clientName: string | null; productName: string | null }>(
       '/api/call/start', { dealId, productId })
-    state.brief = r.brief; state.clientName = r.clientName; state.productName = r.productName
-    state.transcript = []; state.cards = []; state.streaming = null; state.interim = ''
+    state.brief = r.brief; state.battlePlan = r.battlePlan; state.clientName = r.clientName; state.productName = r.productName
+    state.transcript = []; state.cards = []; state.streaming = null; state.interim = ''; state.awaitingOutcome = false
     state.dealId = dealId; state.productId = productId
     state.status = 'Allow the mic, then pick your Meet tab with "Also share tab audio"…'; emit()
 
@@ -91,7 +100,7 @@ export const liveCall = {
       mic.getTracks().forEach((t) => t.stop()); disp.getTracks().forEach((t) => t.stop())
       throw new Error('No tab audio — pick the Meet tab and tick "Also share tab audio".')
     }
-    disp.getVideoTracks()[0].onended = () => { if (state.active) liveCall.end() }
+    disp.getVideoTracks()[0].onended = () => { if (state.active) liveCall.stopCapture() }
     streams = [mic, disp]
     await connectEvents()
     const t = await token()
@@ -100,19 +109,39 @@ export const liveCall = {
     state.active = true; state.status = 'Live — listening on both channels.'; emit()
   },
 
-  async end() {
-    recs.forEach((r) => { try { if (r.state !== 'inactive') r.stop() } catch { /* noop */ } })
-    socks.forEach((w) => { try { w.close() } catch { /* noop */ } })
-    streams.forEach((s) => s.getTracks().forEach((t) => t.stop()))
-    recs = []; socks = []; streams = []
-    const wasActive = state.active
-    state.active = false; state.status = 'Analyzing & saving the Client Brain…'; emit()
-    if (!wasActive) return null
-    const r = await api<{ dealId?: string }>('/api/call/end', {})
+  /** Stop capturing audio immediately (End Call was clicked) — the outcome modal
+   *  shows next; the actual save + Client Brain analysis happens in finish(). */
+  stopCapture() {
+    if (!state.active) return
+    stopMedia()
+    state.active = false; state.awaitingOutcome = true
+    state.status = 'Call ended — one quick question before we save it…'
+    emit()
+  },
+
+  /** Submit the outcome (or skip) and run the post-call analysis + save. */
+  async finish(meta: { outcome?: Outcome; savedDeal?: boolean; savedDealNote?: string } = {}) {
+    state.awaitingOutcome = false
+    state.status = 'Analyzing & saving the Client Brain…'; emit()
+    const r = await api<{ dealId?: string }>('/api/call/end', meta)
     return r.dealId ?? null
   },
 
+  /** Cancel without saving (used if the call never really started / no transcript). */
+  discard() {
+    stopMedia()
+    state.active = false; state.awaitingOutcome = false
+    emit()
+  },
+
   sim() { api('/simulate', {}) },
+
+  rateCard(id: number | undefined, used: boolean) {
+    if (id === undefined) return
+    const card = state.cards.find((c) => c.id === id)
+    if (card) { card.used = used; emit() }
+    api('/api/card-feedback', { id, used })
+  },
 
   async overlay() {
     if (pipWin) { pipWin.focus(); return }

@@ -1,26 +1,34 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLiveCall } from '@/lib/liveCall'
 import { Brain } from '@/components/Brain'
 import { CoachingCard } from '@/lib/coaching'
+import { OutcomeModal } from '@/components/OutcomeModal'
 import { Button } from '@/components/ui/button'
-import { PictureInPicture2, Zap } from 'lucide-react'
+import type { Outcome } from '@/lib/types'
+import { PictureInPicture2, Zap, Target } from 'lucide-react'
 
 export default function LiveCall() {
   const { state, live } = useLiveCall()
   const navigate = useNavigate()
+  const [finishing, setFinishing] = useState(false)
 
   useEffect(() => {
-    if (!state.active && state.transcript.length === 0) navigate('/new')
+    if (!state.active && !state.awaitingOutcome && state.transcript.length === 0) navigate('/new')
   }, [])
 
-  const end = async () => {
-    const dealId = await live.end()
+  const finish = async (meta: { outcome?: Outcome; savedDeal?: boolean; savedDealNote?: string }) => {
+    setFinishing(true)
+    const dealId = await live.finish(meta)
     navigate(dealId ? `/clients/${dealId}` : '/')
   }
 
   return (
     <div className="flex h-[calc(100vh-56px)] flex-col px-8 py-5">
+      {state.awaitingOutcome && !finishing && (
+        <OutcomeModal onSubmit={finish} onSkip={() => finish({})} />
+      )}
+
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-bold tracking-tight">Live Call{state.clientName ? ` — ${state.clientName}` : ''}</h2>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -30,14 +38,26 @@ export default function LiveCall() {
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => live.overlay()}><PictureInPicture2 className="h-4 w-4" /> Overlay</Button>
           <Button variant="outline" size="sm" onClick={() => live.sim()}><Zap className="h-4 w-4" /> Test</Button>
-          {state.active && <Button variant="destructive" size="sm" onClick={end}>End Call</Button>}
+          {state.active && <Button variant="destructive" size="sm" onClick={() => live.stopCapture()}>End Call</Button>}
         </div>
       </div>
 
-      {state.brief && (
-        <div className="mb-3 max-h-[26vh] overflow-y-auto rounded-xl border border-amber-500/25 bg-amber-50 p-4">
-          <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">Pre-call brief — Client Brain</div>
-          <Brain md={state.brief} />
+      {(state.battlePlan || state.brief) && (
+        <div className="mb-3 grid max-h-[28vh] gap-3 overflow-y-auto md:grid-cols-2">
+          {state.battlePlan && (
+            <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
+              <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-primary">
+                <Target className="h-3.5 w-3.5" /> Battle plan
+              </div>
+              <Brain md={state.battlePlan} />
+            </div>
+          )}
+          {state.brief && (
+            <div className="rounded-xl border border-amber-500/25 bg-amber-50 p-4">
+              <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">Client Brain</div>
+              <Brain md={state.brief} />
+            </div>
+          )}
         </div>
       )}
 
@@ -47,7 +67,7 @@ export default function LiveCall() {
             <div className="m-auto max-w-xs text-center text-sm text-muted-foreground">Coached lines appear here the moment they matter. Small talk stays silent.</div>
           )}
           {state.cards.slice(-4).map((c, i, arr) => (
-            <CoachingCard key={i} {...c} className={i < arr.length - 1 || state.streaming ? 'opacity-50' : ''} />
+            <CoachingCard key={c.id ?? i} {...c} onRate={live.rateCard} className={i < arr.length - 1 || state.streaming ? 'opacity-50' : ''} />
           ))}
           {state.streaming && <CoachingCard {...state.streaming} streaming />}
         </div>

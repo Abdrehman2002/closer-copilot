@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { ThumbsUp, ThumbsDown } from 'lucide-react'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -16,17 +17,40 @@ export function renderLineHtml(raw: string): string {
 }
 
 export function CoachingCard({
-  tone, line, why, technique, streaming, className,
+  id, tone, line, why, technique, used, streaming, onRate, className,
 }: {
-  tone: string; line: string; why?: string; technique?: string; streaming?: boolean; className?: string
+  id?: number; tone: string; line: string; why?: string; technique?: string; used?: boolean | null
+  streaming?: boolean; onRate?: (id: number, used: boolean) => void; className?: string
 }) {
   const silent = /silent/i.test(tone)
   return (
     <div className={cn('rounded-xl border border-border bg-card p-4 shadow-sm', className)}>
-      <span className={cn(
-        'mb-2 inline-block rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white',
-        silent ? 'bg-amber-600' : 'bg-primary'
-      )}>{tone || '…'}</span>
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <span className={cn(
+          'inline-block rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white',
+          silent ? 'bg-amber-600' : 'bg-primary'
+        )}>{tone || '…'}</span>
+        {!streaming && onRate && id !== undefined && (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              onClick={() => onRate(id, true)}
+              aria-label="Used this line"
+              className={cn(
+                'grid h-8 w-8 place-items-center rounded-md transition-colors',
+                used === true ? 'bg-success/15 text-success' : 'text-muted-foreground hover:bg-secondary'
+              )}
+            ><ThumbsUp className="h-3.5 w-3.5" /></button>
+            <button
+              onClick={() => onRate(id, false)}
+              aria-label="Didn't use this line"
+              className={cn(
+                'grid h-8 w-8 place-items-center rounded-md transition-colors',
+                used === false ? 'bg-destructive/15 text-destructive' : 'text-muted-foreground hover:bg-secondary'
+              )}
+            ><ThumbsDown className="h-3.5 w-3.5" /></button>
+          </div>
+        )}
+      </div>
       <div className="cl-line text-[21px] font-semibold leading-snug" dangerouslySetInnerHTML={{ __html: renderLineHtml(line) }} />
       {!streaming && (technique || why) && (
         <div className="mt-2 text-xs text-muted-foreground">

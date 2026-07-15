@@ -4,7 +4,7 @@ import { sb } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { initials } from '@/lib/format'
-import { House, Users, Phone, Layers, Plus, LogOut, Menu, X } from 'lucide-react'
+import { House, Users, Phone, Layers, Plus, LogOut, Menu, X, BarChart3, Settings as SettingsIcon } from 'lucide-react'
 
 const groups = [
   {
@@ -13,11 +13,15 @@ const groups = [
       { to: '/', label: 'Dashboard', icon: House, end: true },
       { to: '/clients', label: 'Clients', icon: Users, end: false },
       { to: '/calls', label: 'Calls', icon: Phone, end: false },
+      { to: '/metrics', label: 'Metrics', icon: BarChart3, end: false },
     ],
   },
   {
     label: 'Library',
-    items: [{ to: '/playbooks', label: 'Playbooks', icon: Layers, end: false }],
+    items: [
+      { to: '/playbooks', label: 'Playbooks', icon: Layers, end: false },
+      { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false },
+    ],
   },
 ]
 
@@ -25,7 +29,9 @@ const titleFor = (path: string) => {
   if (path === '/') return 'Dashboard'
   if (path.startsWith('/clients')) return 'Clients'
   if (path.startsWith('/calls')) return 'Calls'
+  if (path.startsWith('/metrics')) return 'Metrics'
   if (path.startsWith('/playbooks')) return 'Playbooks'
+  if (path.startsWith('/settings')) return 'Settings'
   if (path.startsWith('/new')) return 'New Call'
   if (path.startsWith('/live')) return 'Live Call'
   return 'Closer Copilot'

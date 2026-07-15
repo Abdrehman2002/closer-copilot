@@ -12,6 +12,7 @@ const QUESTIONS: Q[] = [
   { key: 'outcome', q: "What's the real outcome the customer gets — the 'after' state?", ph: 'They never miss a job again; every call answered and booked, even after hours.' },
   { key: 'buyer', q: "Who's on the other end of the call — role, industry, their world?", ph: 'Owner-operator HVAC, out on jobs all day, answers the phone himself.' },
   { key: 'pain', q: "What's the #1 problem you solve — and what does NOT solving it cost them, in their terms?", ph: 'Missed calls become lost jobs — 5-6 a week, ~$300 each = real money walking away.' },
+  { key: 'fear_trigger', q: "What's their #1 fear if they DON'T fix this — and what usually makes them finally say yes?", ph: "Fear: losing customers to a competitor who never misses a call. Trigger: after a bad month where they know exactly how many jobs slipped." },
   { key: 'objections', big: true, q: 'Your objections — list the ones you hear most, in the prospect\'s words, each with your best answer.', ph: '"It\'s too expensive" -> compared to one lost job a week it pays for itself.\n"AI sounds robotic" -> ...\n"I already have an answering service" -> ...' },
   { key: 'proof', q: 'What proof do you have — results, numbers, testimonials — and any guarantee?', ph: 'One client recovered 8 jobs in month one. 30-day money-back guarantee.' },
   { key: 'competition', q: 'What else might they consider (including doing nothing), and why are you better?', ph: 'Cheap answering services just take messages; voicemail loses the job; we book it.' },

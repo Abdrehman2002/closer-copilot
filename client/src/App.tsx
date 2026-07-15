@@ -21,6 +21,8 @@ const PlaybookNew = lazy(() => import('@/pages/PlaybookNew'))
 const PlaybookDetail = lazy(() => import('@/pages/PlaybookDetail'))
 const NewCall = lazy(() => import('@/pages/NewCall'))
 const LiveCall = lazy(() => import('@/pages/LiveCall'))
+const Settings = lazy(() => import('@/pages/Settings'))
+const Metrics = lazy(() => import('@/pages/Metrics'))
 
 const Loading = () => <div className="grid h-screen place-items-center text-sm text-muted-foreground">Loading…</div>
 
@@ -57,6 +59,8 @@ export default function App() {
           <Route path="/playbooks/:id" element={<Suspense fallback={<PageSkeleton />}><PlaybookDetail /></Suspense>} />
           <Route path="/new" element={<Suspense fallback={<PageSkeleton />}><NewCall /></Suspense>} />
           <Route path="/live" element={<Suspense fallback={<PageSkeleton />}><LiveCall /></Suspense>} />
+          <Route path="/settings" element={<Suspense fallback={<PageSkeleton />}><Settings /></Suspense>} />
+          <Route path="/metrics" element={<Suspense fallback={<PageSkeleton />}><Metrics /></Suspense>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

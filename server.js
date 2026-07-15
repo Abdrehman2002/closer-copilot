@@ -21,8 +21,14 @@ try {
 
 const DG_KEY = process.env.DEEPGRAM_API_KEY || '';
 const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
-const LIVE_MODEL = process.env.LIVE_MODEL || 'gpt-4o-mini';
-const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'gpt-4o';
+// Three OpenAI model tiers, picked by measured latency + quality on the hardest
+// playbook moves (see model-bench scripts): fast+sharp for the live whisper (every
+// few seconds of a call — latency and quality-on-hard-cases both matter), the
+// strongest model for the between-call battle plan (not latency sensitive — this is
+// the moat), and a fast mid-tier for structured post-call extraction (runs once/call).
+const LIVE_MODEL = process.env.LIVE_MODEL || 'gpt-4.1-mini';
+const PREP_MODEL = process.env.PREP_MODEL || 'gpt-4.1';
+const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'gpt-4.1-mini';
 const SUPA_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPA_KEY = process.env.SUPABASE_KEY || '';
 const PORT = Number(process.env.PORT || 7801);
@@ -124,7 +130,8 @@ function getSession(userId) {
       userId, jwt: null,
       turns: [], cards: [], events: new Set(), callLog: null, callStartAt: 0,
       activeDealId: null, activeProductId: null, activeProductName: '',
-      productContent: '', memory: '', dealState: null, dealName: '',
+      productContent: '', memory: '', dealState: null, dealName: '', dealCompany: '',
+      closerProfile: null,
       lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
       simIdx: 0
@@ -173,16 +180,45 @@ function buildBrief(dealName, company, state, priorCalls) {
   ].join('\n');
 }
 
+// the closer's own voice: tone, framework, signature phrases, never-say list —
+// rarely changes call to call, so it stays in the cacheable prefix alongside the product
+function closerProfileBlock(profile) {
+  if (!profile || (!profile.tone && !profile.framework && !profile.signature_phrases && !profile.never_say)) return '';
+  const lines = ['CLOSER PROFILE — match THIS person\'s voice, not a generic script:'];
+  if (profile.tone) lines.push('- Their natural tone: ' + profile.tone);
+  if (profile.framework) lines.push('- Their preferred sales framework/style: ' + profile.framework);
+  if (profile.signature_phrases) lines.push('- Phrases they like to use — weave these in naturally when they fit: ' + profile.signature_phrases);
+  if (profile.never_say) lines.push('- NEVER say (their words, not this list): ' + profile.never_say);
+  return '\n\n' + lines.join('\n');
+}
+
+// lightweight, deterministic read on the moment from the prospect's last line —
+// no extra API call, near-zero latency cost, sharpens which MOMENT->MOVE the coach reaches for
+function detectTrigger(turns) {
+  const lastProspect = [...turns].reverse().find(t => t.ch === 'prospect');
+  if (!lastProspect) return 'Early in the call — no prospect line yet.';
+  const t = lastProspect.text.toLowerCase();
+  if (/\$|\bprice\b|\bcost\b|expensive|afford|budget|how much/.test(t)) return 'PRICE moment — price was just said or asked about.';
+  if (/already (have|use|got)|competitor|cheaper|other (company|option|guy)/.test(t)) return 'COMPETITOR mention — comparing to another option.';
+  if (/not sure|don'?t know|maybe|think (it |about )?over|talk to|run it by|call.*back|not (a )?good time|another time/.test(t)) return 'STALL — vague deferral, needs the real objection isolated.';
+  if (/how (do|does|would|soon)|when can|what.*next|sounds good|i'?m in|let'?s do|get started|sign (me )?up/.test(t)) return 'BUYING SIGNAL — lean into the close.';
+  if (/no|not interested|worried|concern|but |however|doubt|robot|scam|trust/.test(t)) return 'OBJECTION — a concern was just raised.';
+  return 'Neutral moment — no strong signal, use judgment on whether a line helps.';
+}
+
 function buildSystemPrompt(s) {
-  // Keep the big stable content (intro + playbook + product + format rules) as one prefix so
-  // OpenAI prompt-caching serves it near-instantly on every call after the first; the only
-  // part that varies (per-client memory) goes LAST as a short tail. This is the main latency win.
+  // Keep the big stable content (intro + closer profile + playbook + product + format rules)
+  // as one prefix so OpenAI prompt-caching serves it near-instantly on every call after the
+  // first; the parts that vary turn to turn (deal memory + the live trigger read) go LAST as a
+  // short tail. This is the main latency win.
   return 'You are a live sales coach whispering to "ME" (the seller) during a real video sales call.\n' +
-    'You see the live transcript. Feed the closer the best next line to say. Fire whenever a useful line exists — the closer is counting on you — and stay silent only for pure small talk.\n\n' +
+    'You see the live transcript. Feed the closer the best next line to say. Fire whenever a useful line exists — the closer is counting on you — and stay silent only for pure small talk.' +
+    closerProfileBlock(s.closerProfile) + '\n\n' +
     PLAYBOOK + '\n\n' +
     (s.productContent || '(no product knowledge provided)') + '\n\n' +
     FORMAT_RULES +
-    (s.memory || '');
+    (s.memory || '') +
+    '\n\nLIVE TRIGGER (read on the moment right now): ' + detectTrigger(s.turns);
 }
 
 // ---- coach loop (streaming, per session) ----
@@ -198,9 +234,10 @@ function showCard(s, card, since) {
   if (!repTalking(s) || Date.now() - since > MAX_HOLD_MS) {
     clearTimeout(s.cardFlushTimer); s.pendingCard = null;
     s.lastCardAt = Date.now();
-    broadcast(s, card);
-    s.cards.push({ at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique });
-    logEvent(s, { type: 'card', tone: card.tone, line: card.line, why: card.why, technique: card.technique });
+    const id = s.cards.length;   // stable index into s.cards — the client rates a card by this id
+    s.cards.push({ id, at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique, used: null });
+    broadcast(s, { ...card, id });
+    logEvent(s, { type: 'card', id, tone: card.tone, line: card.line, why: card.why, technique: card.technique });
     console.log('[coach]', s.userId.slice(0, 8), 'FIRE:', card.line);
     return;
   }
@@ -462,6 +499,49 @@ Rules: use ONLY facts from their answers — NEVER invent prices, proof, guarant
   return (j.choices[0].message.content || '').trim();
 }
 
+// pre-call tactical battle plan — runs once before each call, spends the best model
+// (not latency sensitive, this is the moat) synthesizing closer + product + Client Brain
+// into a short opening move / predicted objection / close play the closer reads before dialing
+async function generateBattlePlan(closerProfile, productContent, productName, memoryMd, clientName, company) {
+  const cp = closerProfile || {};
+  const closerLines = [
+    cp.tone ? 'Tone: ' + cp.tone : '',
+    cp.framework ? 'Framework: ' + cp.framework : '',
+    cp.signature_phrases ? 'Likes to say: ' + cp.signature_phrases : '',
+    cp.never_say ? 'Never say: ' + cp.never_say : '',
+  ].filter(Boolean).join('\n') || '(no closer profile set)';
+
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: PREP_MODEL,
+      temperature: 0.4,
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'system',
+          content: `You write a short, sharp pre-call "battle plan" for a closer about to get on a call. Output ONLY Markdown, EXACTLY these sections:
+## Opening move
+One or two sentences: how to open THIS specific call, in the closer's voice.
+## Most likely objection
+The single objection most likely to come up next (from their history or, if first call, from the product's known top objection) — and the exact counter-move.
+## Close play
+The concrete move to try for advancing or closing this deal on this call.
+Rules: ground every line in the ACTUAL product info and Client Brain given — never invent facts, prices, or history. Keep every section to 1-3 short sentences, written to be read in 10 seconds before dialing.`
+        },
+        {
+          role: 'user',
+          content: `CLOSER PROFILE:\n${closerLines}\n\nPRODUCT (${productName || 'unspecified'}):\n${productContent || '(none provided)'}\n\nCLIENT: ${clientName || 'the prospect'}${company ? ' — ' + company : ''}\nCLIENT BRAIN (history with this prospect):\n${memoryMd && memoryMd.trim() ? memoryMd : '(first call — no history yet)'}`
+        }
+      ]
+    })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return (j.choices[0].message.content || '').trim();
+}
+
 // canned ME+prospect pairs for the Test button
 const SIM_PAIRS = [
   { me: "So with setup and the first month included, it comes to fourteen hundred dollars total.",
@@ -515,20 +595,24 @@ const server = http.createServer(async (req, res) => {
       // ---- onboarding / profile ----
       if (urlPath === '/api/me' && req.method === 'GET') {
         const [prof, prods, cls] = await Promise.all([
-          sbRest('profiles?user_id=eq.' + user.id + '&select=name', jwt),
+          sbRest('profiles?user_id=eq.' + user.id + '&select=name,tone,framework,signature_phrases,never_say', jwt),
           sbRest('products?select=id&limit=1', jwt),
           sbRest('deals?select=id&limit=1', jwt)
         ]);
+        const p = prof[0] || {};
         return sendJson(res, {
-          email: user.email, name: (prof[0] && prof[0].name) || '',
+          email: user.email, name: p.name || '',
+          tone: p.tone || '', framework: p.framework || '', signature_phrases: p.signature_phrases || '', never_say: p.never_say || '',
           hasProducts: prods.length > 0, hasClients: cls.length > 0, productTemplate: PRODUCT_TEMPLATE
         });
       }
       if (urlPath === '/api/profile' && req.method === 'POST') {
-        const { name } = await readBody(req);
-        if (!name) return sendJson(res, { error: 'name required' }, 400);
+        const body = await readBody(req);
+        if (!body.name) return sendJson(res, { error: 'name required' }, 400);
+        const patch = { user_id: user.id, name: body.name };
+        for (const k of ['tone', 'framework', 'signature_phrases', 'never_say']) if (k in body) patch[k] = body[k] || '';
         await sbRest('profiles?on_conflict=user_id', jwt, {
-          method: 'POST', body: { user_id: user.id, name },
+          method: 'POST', body: patch,
           prefer: 'resolution=merge-duplicates,return=representation'
         });
         return sendJson(res, { ok: true });
@@ -702,10 +786,17 @@ const server = http.createServer(async (req, res) => {
         if (productId) s.activeProductId = productId;
         s.activeDealId = dealId || null;
         s.turns = []; s.cards = []; s.callLog = null; s.lastCardAt = 0; s.callStartAt = Date.now();
-        s.memory = ''; s.priorMemoryMd = ''; s.dealName = '';
-        const prod = (await sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt))[0];
+        s.memory = ''; s.priorMemoryMd = ''; s.dealName = ''; s.dealCompany = '';
+
+        const [prodRow, profRows] = await Promise.all([
+          sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt),
+          sbRest('profiles?user_id=eq.' + user.id + '&select=tone,framework,signature_phrases,never_say', jwt),
+        ]);
+        const prod = prodRow[0];
         s.productContent = (prod && prod.content) || '';
         s.activeProductName = (prod && prod.name) || '';
+        s.closerProfile = profRows[0] || null;
+
         let brief = null, clientName = null;
         if (s.activeDealId) {
           const deal = (await sbRest('deals?id=eq.' + s.activeDealId + '&select=name,company,memory_md', jwt))[0];
@@ -721,9 +812,18 @@ const server = http.createServer(async (req, res) => {
             }
           }
         }
-        return sendJson(res, { ok: true, brief, clientName, productName: s.activeProductName });
+
+        let battlePlan = null;
+        try {
+          battlePlan = await generateBattlePlan(s.closerProfile, s.productContent, s.activeProductName, s.priorMemoryMd, clientName, s.dealCompany);
+        } catch (e) {
+          console.error('[battle-plan]', e.message);   // non-fatal — the call still starts without it
+        }
+
+        return sendJson(res, { ok: true, brief, battlePlan, clientName, productName: s.activeProductName });
       }
       if (urlPath === '/api/call/end' && req.method === 'POST') {
+        const { outcome, savedDeal, savedDealNote } = await readBody(req);
         const duration = Math.round((Date.now() - (s.callStartAt || Date.now())) / 1000);
         if (!s.activeDealId) return sendJson(res, { ok: true, saved: false, msg: 'no client selected — nothing saved to memory' });
         if (s.turns.length < 2) return sendJson(res, { ok: true, saved: false, msg: 'call too short to analyze' });
@@ -733,11 +833,54 @@ const server = http.createServer(async (req, res) => {
           method: 'POST',
           body: {
             user_id: user.id, deal_id: s.activeDealId, transcript: s.turns, cards: s.cards,
-            summary: snapshotOf(memoryMd), product_name: s.activeProductName, duration_sec: duration
+            summary: snapshotOf(memoryMd), product_name: s.activeProductName, duration_sec: duration,
+            outcome: outcome && ['closed', 'lost', 'follow_up'].includes(outcome) ? outcome : 'unknown',
+            saved_deal: typeof savedDeal === 'boolean' ? savedDeal : null,
+            saved_deal_note: savedDealNote || ''
           }
         }))[0];
         s.priorMemoryMd = memoryMd;
         return sendJson(res, { ok: true, saved: true, msg: 'Client Brain updated — ' + (s.dealName || 'client'), callId: callRow.id, dealId: s.activeDealId });
+      }
+
+      // ---- live-call card feedback (line-acceptance metric) ----
+      if (urlPath === '/api/card-feedback' && req.method === 'POST') {
+        const { id, used } = await readBody(req);
+        const card = s.cards.find(c => c.id === id);
+        if (card) card.used = !!used;
+        return sendJson(res, { ok: true });
+      }
+
+      // ---- personal metrics (the closer's own PMF numbers) ----
+      if (urlPath === '/api/metrics' && req.method === 'GET') {
+        const calls = await sbRest('calls?select=id,created_at,cards,outcome,saved_deal', jwt);
+        let used = 0, rated = 0, closed = 0, decided = 0, savedDeals = 0;
+        const byDay = {};
+        for (const c of calls) {
+          for (const card of (c.cards || [])) {
+            if (card.used === true) { used++; rated++; }
+            else if (card.used === false) rated++;
+          }
+          if (c.outcome && c.outcome !== 'unknown') { decided++; if (c.outcome === 'closed') closed++; }
+          if (c.saved_deal === true) savedDeals++;
+          const day = (c.created_at || '').slice(0, 10);
+          if (day) byDay[day] = (byDay[day] || 0) + 1;
+        }
+        const last14 = [];
+        for (let i = 13; i >= 0; i--) {
+          const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+          last14.push({ day: d, calls: byDay[d] || 0 });
+        }
+        return sendJson(res, {
+          totalCalls: calls.length,
+          lineAcceptancePct: rated ? Math.round((used / rated) * 100) : null,
+          linesRated: rated,
+          savedDeals,
+          closeRatePct: decided ? Math.round((closed / decided) * 100) : null,
+          decidedCalls: decided,
+          activeDays: Object.keys(byDay).length,
+          last14,
+        });
       }
 
       if (urlPath === '/simulate' && req.method === 'POST') {

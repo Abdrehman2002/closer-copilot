@@ -28,16 +28,18 @@ Play any YouTube sales-call recording in a tab and share THAT tab as the
 ## Files that shape the coaching
 
 - `playbook.md` — sales-psychology rules (moment → technique map). Edit in plain English.
-- `product.md` — what you're selling. **Fill in the TODOs** — sharper input = sharper lines.
-- `.env` — API keys and models (`LIVE_MODEL` = live whisper, `ANALYSIS_MODEL` = post-call, coming next).
+- Per-user products/playbooks live in Supabase, built via the in-app Interview (Playbooks → + Add playbook) — no local `product.md` anymore.
+- `.env` — API keys and models: `LIVE_MODEL` (live whisper), `PREP_MODEL` (pre-call battle plan), `ANALYSIS_MODEL` (post-call Client Brain extraction).
 
 ## Roadmap (build order)
 
 - [x] Live two-speaker transcript (mic + tab audio → Deepgram nova-3)
-- [x] Whisper loop with playbook (gpt-4o-mini, one-line cards)
-- [x] Post-call deal-state extraction → Supabase
-- [x] Pre-call "where we left off" brief
+- [x] Whisper loop with playbook (one-line cards, delivery marks)
+- [x] Post-call Client Brain extraction (Markdown) → Supabase
+- [x] Pre-call "where we left off" brief + PREP_MODEL battle plan
 - [x] Deal memory fed into live prompts (the wedge)
+- [x] React UI (dashboard = ranked "next moves", Client Brain, Metrics, Settings)
+- [x] Metrics instrumentation (line-acceptance, saved-deal, close rate)
 - [ ] Usage/margin tracking per user; billing; polish for paid launch
 
 **Demo note:** the Supabase project auto-pauses after ~7 days idle (free tier).
