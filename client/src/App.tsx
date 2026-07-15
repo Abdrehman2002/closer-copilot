@@ -4,7 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { sb } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import type { Me } from '@/lib/types'
-import Login from '@/pages/Login'
+import Landing from '@/pages/Landing'
 import Onboarding from '@/pages/Onboarding'
 import AppShell from '@/components/AppShell'
 import Home from '@/pages/Home'
@@ -35,7 +35,7 @@ export default function App() {
   useEffect(() => { if (session) loadMe() }, [session, loadMe])
 
   if (session === undefined) return <Loading />
-  if (!session) return <Login />
+  if (!session) return <Landing />
   if (me === undefined) return <Loading />
   if (me && !me.name) return <Onboarding me={me} onComplete={loadMe} />
 
