@@ -92,19 +92,19 @@ export default function Landing() {
   return (
     <div className="grid h-screen grid-cols-1 overflow-hidden md:grid-cols-2">
       {/* VISUAL (left) */}
-      <div className="relative hidden flex-col justify-between overflow-hidden border-r border-border bg-gradient-to-br from-[#eef3fd] via-white to-[#e7effe] p-12 md:flex">
+      <div className="relative hidden flex-col items-center justify-between overflow-hidden border-r border-border bg-gradient-to-br from-[#eef3fd] via-white to-[#e7effe] p-12 text-center md:flex">
         <div className="pointer-events-none absolute -left-20 -top-24 h-[380px] w-[380px] rounded-full bg-primary/10 blur-[90px]" />
         <div className="pointer-events-none absolute -bottom-28 right-0 h-[340px] w-[340px] rounded-full bg-primary/[0.08] blur-[90px]" />
 
         <div className="relative z-10"><Wordmark /></div>
 
-        <div className="relative z-10 max-w-[440px]">
+        <div className="relative z-10 flex max-w-[440px] flex-col items-center">
           <h1 className="text-[26px] font-extrabold leading-tight tracking-tight">Know exactly what to say —<br /><span className="text-primary">live, on every call.</span></h1>
           <p className="mt-2 text-sm text-muted-foreground">Whispered coaching that hears the objection and hands you the line.</p>
-          <div className="mt-8"><CoachDemo /></div>
+          <div className="mt-8 flex justify-center"><CoachDemo /></div>
         </div>
 
-        <div className="relative z-10 flex flex-wrap gap-2">
+        <div className="relative z-10 flex flex-wrap justify-center gap-2">
           {chips.map((c) => (
             <span key={c} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[12px] font-medium text-foreground/70">
               <Check className="h-3.5 w-3.5 text-primary" /> {c}
