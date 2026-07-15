@@ -58,6 +58,15 @@ export interface NextMove {
   score: number
 }
 
+export interface DashboardData {
+  moves: NextMove[]
+  focus: NextMove | null
+  cues: { playbookId: string; playbookName: string; objections: { objection: string; say: string }[] } | null
+  radar: { objection: string; count: number }[]
+  gaps: { objection: string; count: number }[]
+  wins: { id: string; name: string; company: string }[]
+}
+
 export type Warmth = 'hot' | 'warming' | 'cold'
 export interface PipelineDeal {
   id: string

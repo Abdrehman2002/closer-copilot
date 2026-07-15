@@ -339,6 +339,42 @@ function parseBrain(md) {
   return { snapshot, openObjections, nextStep, howToClose, warmth, commitmentsUs, commitmentsThem };
 }
 
+// compute the single primary "next move" for one open deal
+function dealMove(d, now) {
+  const b = parseBrain(d.memory_md || '');
+  const hasBrain = !!String(d.memory_md || '').trim();
+  const dates = (d.calls || []).map(c => c.created_at).filter(Boolean).sort();
+  const lastCallAt = dates.length ? dates[dates.length - 1] : null;
+  const days = lastCallAt ? Math.floor((now - new Date(lastCallAt).getTime()) / 86400000) : null;
+  let type, action;
+  if (b.commitmentsUs.length) { type = 'waiting'; action = b.commitmentsUs[0]; }
+  else if (b.commitmentsThem.length) { type = 'follow_up'; action = b.commitmentsThem[0]; }
+  else if (b.warmth === 'hot' || /\b(close|sign|start|book|ready|onboard|schedule|go live)\b/i.test(b.nextStep)) { type = 'ready'; action = b.nextStep || 'Objections are handled — ask for the business.'; }
+  else if (!hasBrain) { type = 'first'; action = 'Get their situation and pain on record.'; }
+  else if (days != null && days >= 4) { type = 'cold'; action = b.nextStep || 'Re-open the pain and earn the next call.'; }
+  else { type = 'motion'; action = b.nextStep || 'Keep the conversation moving.'; }
+  const base = { waiting: 100, follow_up: 90, ready: 80, cold: 60, motion: 30, first: 20 }[type];
+  return { id: d.id, name: d.name, company: d.company, type, action, days, howToClose: b.howToClose, nextStep: b.nextStep, score: base + Math.min(days || 0, 30) };
+}
+
+// pull objection -> line cues out of a compiled playbook's "Objection playbook" section
+function parseCues(content) {
+  const block = sectionOf(content, 'Objection playbook');
+  const cues = [];
+  const re = /###\s*"?([^"\n]+?)"?\s*\n([\s\S]*?)(?=\n###|\n##|$)/g;
+  let m;
+  while ((m = re.exec(block)) && cues.length < 12) {
+    const objection = m[1].trim();
+    const say = ((m[2].match(/-\s*Say:\s*(.+)/i) || [])[1] || '').trim();
+    if (objection) cues.push({ objection, say });
+  }
+  return cues;
+}
+
+const STOPWORDS = new Set(['the','a','an','is','it','to','of','for','on','we','you','they','and','or','too','my','your','with','that','this','not','have','has','be','are','was','im','ive','dont','need','about','just','really']);
+const kwTokens = (s) => (String(s || '').toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOPWORDS.has(w));
+const objKey = (s) => kwTokens(s).slice(0, 4).join(' ');
+
 async function extractClientBrain(prevMemoryMd, turns, productName, clientName, company) {
   const transcript = turns.map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text).join('\n');
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -618,24 +654,46 @@ const server = http.createServer(async (req, res) => {
       if (urlPath === '/api/next-moves' && req.method === 'GET') {
         const deals = await sbRest('deals?select=id,name,company,status,memory_md,calls(created_at)&order=created_at.desc', jwt);
         const now = Date.now();
-        const items = deals.filter(d => d.status === 'open').map(d => {
-          const b = parseBrain(d.memory_md || '');
-          const hasBrain = !!String(d.memory_md || '').trim();
-          const dates = (d.calls || []).map(c => c.created_at).filter(Boolean).sort();
-          const lastCallAt = dates.length ? dates[dates.length - 1] : null;
-          const days = lastCallAt ? Math.floor((now - new Date(lastCallAt).getTime()) / 86400000) : null;
-          let type, action;
-          if (b.commitmentsUs.length) { type = 'waiting'; action = b.commitmentsUs[0]; }
-          else if (b.commitmentsThem.length) { type = 'follow_up'; action = b.commitmentsThem[0]; }
-          else if (b.warmth === 'hot' || /\b(close|sign|start|book|ready|onboard|schedule|go live)\b/i.test(b.nextStep)) { type = 'ready'; action = b.nextStep || 'Objections are handled — ask for the business.'; }
-          else if (!hasBrain) { type = 'first'; action = 'Get their situation and pain on record.'; }
-          else if (days != null && days >= 4) { type = 'cold'; action = b.nextStep || 'Re-open the pain and earn the next call.'; }
-          else { type = 'motion'; action = b.nextStep || 'Keep the conversation moving.'; }
-          const base = { waiting: 100, follow_up: 90, ready: 80, cold: 60, motion: 30, first: 20 }[type];
-          return { id: d.id, name: d.name, company: d.company, type, action, days, howToClose: b.howToClose, score: base + Math.min(days || 0, 30) };
-        });
-        items.sort((a, b2) => b2.score - a.score);
+        const items = deals.filter(d => d.status === 'open').map(d => dealMove(d, now)).sort((a, b) => b.score - a.score);
         return sendJson(res, { items });
+      }
+
+      // ---- full dashboard: moves + focus + playbook cues + objection radar + gaps + wins ----
+      if (urlPath === '/api/dashboard' && req.method === 'GET') {
+        const now = Date.now();
+        const [deals, products] = await Promise.all([
+          sbRest('deals?select=id,name,company,status,memory_md,calls(created_at)&order=created_at.desc', jwt),
+          sbRest('products?select=id,name,content&order=created_at', jwt),
+        ]);
+        const openDeals = deals.filter(d => d.status === 'open');
+        const moves = openDeals.map(d => dealMove(d, now)).sort((a, b) => b.score - a.score);
+
+        const radarMap = {};
+        for (const d of openDeals) for (const o of parseBrain(d.memory_md || '').openObjections) {
+          const k = objKey(o) || o.toLowerCase();
+          (radarMap[k] = radarMap[k] || { objection: o, count: 0 }).count++;
+        }
+        const radar = Object.values(radarMap).sort((a, b) => b.count - a.count).slice(0, 6);
+
+        const cueList = products.map(p => ({ id: p.id, name: p.name, cues: parseCues(p.content || '') }));
+        const primary = cueList.find(p => p.cues.length) || cueList[0] || null;
+        const cues = primary ? { playbookId: primary.id, playbookName: primary.name, objections: primary.cues.slice(0, 8) } : null;
+
+        const coveredTokens = new Set();
+        for (const p of products) for (const c of parseCues(p.content || '')) kwTokens(c.objection).forEach(t => coveredTokens.add(t));
+        const gapMap = {};
+        for (const d of deals) for (const o of parseBrain(d.memory_md || '').openObjections) {
+          const tk = kwTokens(o);
+          if (tk.length && !tk.some(t => coveredTokens.has(t))) {
+            const k = objKey(o) || o.toLowerCase();
+            (gapMap[k] = gapMap[k] || { objection: o, count: 0 }).count++;
+          }
+        }
+        const gaps = Object.values(gapMap).sort((a, b) => b.count - a.count).slice(0, 4);
+
+        const wins = deals.filter(d => d.status === 'won').slice(0, 5).map(d => ({ id: d.id, name: d.name, company: d.company }));
+
+        return sendJson(res, { moves, focus: moves[0] || null, cues, radar, gaps, wins });
       }
 
       // ---- call lifecycle ----
