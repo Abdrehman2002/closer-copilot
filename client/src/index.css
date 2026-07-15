@@ -53,3 +53,8 @@
 .cl-cue.cl-body { color: hsl(214 80% 42%); background: hsl(214 95% 94%); font-style: normal; }
 .cl-down { color: hsl(214 95% 52%); }
 .cl-up { color: #b45309; }
+
+@keyframes float { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
+.animate-float { animation: float 5.5s ease-in-out infinite; }
+@keyframes float-slow { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-16px) } }
+.animate-float-slow { animation: float-slow 7s ease-in-out infinite; }
