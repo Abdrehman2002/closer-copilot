@@ -4,3 +4,6 @@ node_modules/
 calls/
 data/
 *.log
+public/
+public_legacy/
+client/dist/

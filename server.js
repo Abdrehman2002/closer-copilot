@@ -634,7 +634,17 @@ const server = http.createServer(async (req, res) => {
   const file = path.join(__dirname, 'public', path.normalize(rel));
   if (!file.startsWith(path.join(__dirname, 'public'))) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, buf) => {
-    if (err) { res.writeHead(404); return res.end('not found'); }
+    if (err) {
+      // SPA fallback: a route with no file extension → serve the app shell so client routing works
+      if (!path.extname(file)) {
+        return fs.readFile(path.join(__dirname, 'public', 'index.html'), (e2, html) => {
+          if (e2) { res.writeHead(404); return res.end('not found'); }
+          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.end(html);
+        });
+      }
+      res.writeHead(404); return res.end('not found');
+    }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
     res.end(buf);
   });
