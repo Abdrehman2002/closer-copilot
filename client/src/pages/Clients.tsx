@@ -5,28 +5,29 @@ import type { ClientRow } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ListSkeleton } from '@/components/Skeleton'
+import { AddClientModal } from '@/components/AddClientModal'
 import { Plus } from 'lucide-react'
 
 export default function Clients() {
   const [clients, setClients] = useState<ClientRow[] | null>(null)
+  const [showAdd, setShowAdd] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => { api<{ clients: ClientRow[] }>('/api/clients').then((r) => setClients(r.clients || [])) }, [])
-
-  const add = async () => {
-    const name = window.prompt('Client name (the person on the call):')
-    if (!name) return
-    const company = window.prompt('Company (optional):') || ''
-    const r = await api<{ client: { id: string } }>('/api/clients', { name, company })
-    if (r.client) navigate(`/clients/${r.client.id}`)
-  }
 
   return (
     <div className="mx-auto max-w-[1000px] px-8 py-7">
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-xl font-bold tracking-tight">Clients</h2>
-        <Button onClick={add}><Plus className="h-4 w-4" /> Add client</Button>
+        <Button onClick={() => setShowAdd(true)}><Plus className="h-4 w-4" /> Add client</Button>
       </div>
+
+      {showAdd && (
+        <AddClientModal
+          onClose={() => setShowAdd(false)}
+          onCreated={(c) => navigate(`/clients/${c.id}`)}
+        />
+      )}
 
       {!clients ? (
         <ListSkeleton />

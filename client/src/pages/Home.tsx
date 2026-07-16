@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import type { DashboardData, NextMove, MoveType } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { DashboardSkeleton } from '@/components/Skeleton'
+import { AddClientModal } from '@/components/AddClientModal'
 import {
   Phone, Clock3, PhoneCall, Target, Snowflake, ArrowRight, UserPlus,
   CheckCircle2, BookOpen, Radar, Lightbulb, Trophy, Plus, Zap, Bell, Check,
@@ -28,6 +29,7 @@ const dayChip = (days: number | null) => {
 
 export default function Home() {
   const [d, setD] = useState<DashboardData | null>(null)
+  const [showAddClient, setShowAddClient] = useState(false)
   const navigate = useNavigate()
   const load = () => api<DashboardData>('/api/dashboard').then(setD)
   useEffect(() => { load() }, [])
@@ -92,10 +94,17 @@ export default function Home() {
           <RailCard title="Quick actions" icon={Zap}>
             <div className="flex flex-col gap-2">
               <Button variant="outline" className="justify-start" onClick={() => navigate('/new')}><Phone className="h-4 w-4" /> Start a call</Button>
-              <Button variant="outline" className="justify-start" onClick={() => navigate('/clients')}><UserPlus className="h-4 w-4" /> Clients</Button>
+              <Button variant="outline" className="justify-start" onClick={() => setShowAddClient(true)}><UserPlus className="h-4 w-4" /> Add client</Button>
               <Button variant="outline" className="justify-start" onClick={() => navigate('/playbooks/new')}><Plus className="h-4 w-4" /> New playbook</Button>
             </div>
           </RailCard>
+
+          {showAddClient && (
+            <AddClientModal
+              onClose={() => setShowAddClient(false)}
+              onCreated={(c) => navigate(`/clients/${c.id}`)}
+            />
+          )}
 
           {d.reminders.length > 0 && (
             <RailCard title="Reminders" icon={Bell}>
