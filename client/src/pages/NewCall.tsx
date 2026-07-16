@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
-import type { Product, ClientRow } from '@/lib/types'
+import type { Product, ClientRow, GoalOption } from '@/lib/types'
 import { liveCall } from '@/lib/liveCall'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,9 +11,11 @@ const selectCls = 'flex h-10 w-full rounded-md border border-input bg-card px-3 
 export default function NewCall() {
   const [products, setProducts] = useState<Product[]>([])
   const [clients, setClients] = useState<ClientRow[]>([])
+  const [goals, setGoals] = useState<GoalOption[]>([])
   const [ready, setReady] = useState(false)
   const [productId, setProductId] = useState('')
   const [clientId, setClientId] = useState('')
+  const [goal, setGoal] = useState('')
   const [ncName, setNcName] = useState('')
   const [ncCompany, setNcCompany] = useState('')
   const [msg, setMsg] = useState('')
@@ -25,8 +27,10 @@ export default function NewCall() {
     Promise.all([
       api<{ products: Product[] }>('/api/products'),
       api<{ clients: ClientRow[] }>('/api/clients'),
-    ]).then(([p, c]) => {
+      fetch('/api/config').then((r) => r.json()),
+    ]).then(([p, c, cfg]) => {
       setProducts(p.products || []); setClients(c.clients || [])
+      setGoals(cfg.goals || [])
       setProductId(p.products?.[0]?.id || '')
       const pre = params.get('client')
       setClientId(pre && (c.clients || []).some((x) => x.id === pre) ? pre : '')
@@ -37,13 +41,14 @@ export default function NewCall() {
   const start = async () => {
     setBusy(true); setMsg('')
     try {
+      if (!goal) { setMsg('Pick the goal of this call — it changes how the coach plays it.'); setBusy(false); return }
       let dealId = clientId
       if (!dealId) {
         if (!ncName.trim()) { setMsg('Enter a client name or pick one.'); setBusy(false); return }
         const r = await api<{ client: { id: string } }>('/api/clients', { name: ncName.trim(), company: ncCompany.trim() })
         dealId = r.client.id
       }
-      await liveCall.start(dealId, productId)
+      await liveCall.start(dealId, productId, goal)
       navigate('/live')
     } catch (e: any) { setMsg(e.message); setBusy(false) }
   }
@@ -78,6 +83,15 @@ export default function NewCall() {
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''} ({c.calls})</option>)}
             </select>
           </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="mb-1.5 text-xs font-medium text-muted-foreground">What's the goal of this call?</div>
+          <select className={selectCls} value={goal} onChange={(e) => setGoal(e.target.value)}>
+            <option value="">Pick a goal…</option>
+            {goals.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
+          </select>
+          <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">The coach plays for this goal — on a discovery call it digs for pain instead of pushing the close.</p>
         </div>
 
         {!clientId && (

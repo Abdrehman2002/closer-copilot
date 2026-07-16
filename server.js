@@ -135,7 +135,7 @@ function getSession(userId) {
       turns: [], cards: [], events: new Set(), callLog: null, callStartAt: 0,
       activeDealId: null, activeProductId: null, activeProductName: '',
       productContent: '', memory: '', dealState: null, dealName: '', dealCompany: '',
-      closerProfile: null,
+      closerProfile: null, callGoal: '',
       lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
       simIdx: 0
@@ -184,6 +184,65 @@ function buildBrief(dealName, company, state, priorCalls) {
   ].join('\n');
 }
 
+// ---- meeting goals: not every call is a close call ----
+// The selected goal reshapes what the coach drives toward. Pushing for a signature on a
+// discovery call is bad selling — the goal block overrides the playbook's default close drive.
+const GOALS = {
+  discovery: {
+    label: 'Discovery — understand their situation & pain',
+    guidance: `THIS IS A DISCOVERY CALL. Success = they talked 70% of the time and you leave with their
+situation, pain (in THEIR numbers), buying process, and stakeholders on record — plus an agreed next step.
+- Favor: calibrated questions, pain-funnel, labels, silence after questions. One question per card.
+- Do NOT pitch features, do NOT present price, do NOT push for a decision — even on a buying signal,
+  acknowledge it warmly and keep digging ("love that — before we go there, help me understand…").
+- EVEN IF THEY DIRECTLY ASK for price or "what it takes to get started": do NOT answer with numbers.
+  Deflect warmly and buy the next meeting: "I could throw a number at you, but it'd be a guess until
+  I understand your call volume — || let me ask you two more things, ↗ then I'll give you real numbers."
+- The only "close" allowed: locking the concrete next meeting with a time.`,
+  },
+  qualify: {
+    label: 'Qualification — is this deal worth pursuing?',
+    guidance: `THIS IS A QUALIFICATION CALL. Success = you know budget reality, decision authority,
+timeline, and competing options — and either a fit is confirmed or you gracefully disqualify.
+- Favor: direct calibrated questions about money, authority, timing; label hesitation to surface truth.
+- Do NOT oversell or defend price yet; you are deciding whether THEY qualify.
+- If they're not a fit, coach a respectful exit that leaves the door open.`,
+  },
+  pitch: {
+    label: 'Pitch / demo — present the solution',
+    guidance: `THIS IS A PITCH CALL. Success = they see their OWN pain solved and agree to a concrete
+evaluation step. Anchor every capability to a pain THEY stated (use the Client Brain).
+- Favor: teach-and-reframe, proof points from the playbook, trial closes ("how does that land?").
+- Handle objections fully, but the ask at the end is the agreed NEXT STEP, not necessarily the contract.`,
+  },
+  book_next: {
+    label: 'Get the next meeting booked',
+    guidance: `THIS CALL EXISTS TO BOOK THE NEXT MEETING (often with more stakeholders). Success = a
+specific date/time on the calendar with the right people, before this call ends.
+- Favor: value teases (give one insight, imply more), assumptive scheduling ("does Tuesday or
+  Thursday work?"), naming who should join and why it serves THEM.
+- Do NOT try to close the deal here; do NOT dump the full pitch or the pricing — if they ask for
+  numbers, make the numbers the AGENDA of the next meeting ("that's exactly what I'll walk you
+  through — || does Tuesday or Thursday work?").
+- Every card should quietly move toward calendar commitment.`,
+  },
+  close: {
+    label: 'Close — get the decision',
+    guidance: `THIS IS A CLOSE CALL. Success = a decision today — signed, paid, or scheduled onboarding.
+- Favor: assumptive close, takeaway, silence after the ask, objection isolation ("is it the price,
+  or whether it works?"), summarizing THEIR stated pain and commitments back to them from the Client Brain.
+- Do NOT reopen discovery or introduce new features/doubts. Fewer words, more certainty, real deadlines only.`,
+  },
+  follow_up: {
+    label: 'Follow-up — re-engage & advance',
+    guidance: `THIS IS A FOLLOW-UP CALL. Success = the deal visibly moves: last call's commitments
+(theirs and yours, in the Client Brain) get resolved, and a new concrete step is agreed.
+- Open by resolving what was promised. Favor: recap-and-confirm, labels on any cooling
+  ("seems like priorities shifted?"), and re-anchoring on their original pain.
+- If they've gone cold, coach re-opening the pain, not pitching harder.`,
+  },
+};
+
 // the closer's own voice: tone, framework, signature phrases, never-say list —
 // rarely changes call to call, so it stays in the cacheable prefix alongside the product
 function closerProfileBlock(profile) {
@@ -215,14 +274,21 @@ function buildSystemPrompt(s) {
   // as one prefix so OpenAI prompt-caching serves it near-instantly on every call after the
   // first; the parts that vary turn to turn (deal memory + the live trigger read) go LAST as a
   // short tail. This is the main latency win.
+  // The goal block goes FIRST — it must beat the playbook's moment-map when they conflict
+  // (e.g. a buying signal on a discovery call). Models weight the prompt opening heavily.
+  const goalBlock = s.callGoal && GOALS[s.callGoal]
+    ? '\n\n=== MEETING GOAL — HIGHEST PRIORITY ===\nThe closer set the goal of THIS call. It OVERRIDES the playbook\'s moment-map and its default drive-to-close. A card that violates this goal is a WRONG card even if the playbook suggests the move.\n' + GOALS[s.callGoal].guidance + '\n=== END MEETING GOAL ==='
+    : '';
   return 'You are a live sales coach whispering to "ME" (the seller) during a real video sales call.\n' +
     'You see the live transcript. Feed the closer the best next line to say. Fire whenever a useful line exists — the closer is counting on you — and stay silent only for pure small talk.' +
+    goalBlock +
     closerProfileBlock(s.closerProfile) + '\n\n' +
     PLAYBOOK + '\n\n' +
     (s.productContent || '(no product knowledge provided)') + '\n\n' +
     FORMAT_RULES +
     (s.memory || '') +
-    '\n\nLIVE TRIGGER (read on the moment right now): ' + detectTrigger(s.turns);
+    '\n\nLIVE TRIGGER (read on the moment right now): ' + detectTrigger(s.turns) +
+    (s.callGoal && GOALS[s.callGoal] ? '\nREMEMBER: serve the meeting goal (' + GOALS[s.callGoal].label + ') — not the default close drive.' : '');
 }
 
 // ---- coach loop (streaming, per session) ----
@@ -673,7 +739,7 @@ Rules: use ONLY facts from their answers — NEVER invent prices, proof, guarant
 // pre-call tactical battle plan — runs once before each call, spends the best model
 // (not latency sensitive, this is the moat) synthesizing closer + product + Client Brain
 // into a short opening move / predicted objection / close play the closer reads before dialing
-async function generateBattlePlan(closerProfile, productContent, productName, memoryMd, clientName, company) {
+async function generateBattlePlan(closerProfile, productContent, productName, memoryMd, clientName, company, goal) {
   const cp = closerProfile || {};
   const closerLines = [
     cp.tone ? 'Tone: ' + cp.tone : '',
@@ -681,6 +747,9 @@ async function generateBattlePlan(closerProfile, productContent, productName, me
     cp.signature_phrases ? 'Likes to say: ' + cp.signature_phrases : '',
     cp.never_say ? 'Never say: ' + cp.never_say : '',
   ].filter(Boolean).join('\n') || '(no closer profile set)';
+  const goalBlock = goal && GOALS[goal]
+    ? `\n\nMEETING GOAL for this call (the whole plan must serve THIS goal, not a generic close):\n${GOALS[goal].guidance}`
+    : '';
 
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -697,13 +766,13 @@ async function generateBattlePlan(closerProfile, productContent, productName, me
 One or two sentences: how to open THIS specific call, in the closer's voice.
 ## Most likely objection
 The single objection most likely to come up next (from their history or, if first call, from the product's known top objection) — and the exact counter-move.
-## Close play
-The concrete move to try for advancing or closing this deal on this call.
+## Goal play
+The concrete move that achieves THIS call's stated meeting goal (if a goal is given, the play serves it — e.g., on a discovery call the play is getting the pain on record and the next meeting booked, NOT asking for the sale).
 Rules: ground every line in the ACTUAL product info and Client Brain given — never invent facts, prices, or history. Keep every section to 1-3 short sentences, written to be read in 10 seconds before dialing.`
         },
         {
           role: 'user',
-          content: `CLOSER PROFILE:\n${closerLines}\n\nPRODUCT (${productName || 'unspecified'}):\n${productContent || '(none provided)'}\n\nCLIENT: ${clientName || 'the prospect'}${company ? ' — ' + company : ''}\nCLIENT BRAIN (history with this prospect):\n${memoryMd && memoryMd.trim() ? memoryMd : '(first call — no history yet)'}`
+          content: `CLOSER PROFILE:\n${closerLines}${goalBlock}\n\nPRODUCT (${productName || 'unspecified'}):\n${productContent || '(none provided)'}\n\nCLIENT: ${clientName || 'the prospect'}${company ? ' — ' + company : ''}\nCLIENT BRAIN (history with this prospect):\n${memoryMd && memoryMd.trim() ? memoryMd : '(first call — no history yet)'}`
         }
       ]
     })
@@ -752,7 +821,10 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (urlPath === '/api/config' && req.method === 'GET') {
-      return sendJson(res, { url: SUPA_URL, key: SUPA_KEY });
+      return sendJson(res, {
+        url: SUPA_URL, key: SUPA_KEY,
+        goals: Object.entries(GOALS).map(([id, g]) => ({ id, label: g.label }))
+      });
     }
 
     if (urlPath.startsWith('/api/') || urlPath === '/simulate') {
@@ -953,9 +1025,10 @@ const server = http.createServer(async (req, res) => {
 
       // ---- call lifecycle ----
       if (urlPath === '/api/call/start' && req.method === 'POST') {
-        const { dealId, productId } = await readBody(req);
+        const { dealId, productId, goal } = await readBody(req);
         if (productId) s.activeProductId = productId;
         s.activeDealId = dealId || null;
+        s.callGoal = goal && GOALS[goal] ? goal : '';
         s.turns = []; s.cards = []; s.callLog = null; s.lastCardAt = 0; s.callStartAt = Date.now();
         s.memory = ''; s.priorMemoryMd = ''; s.dealName = ''; s.dealCompany = '';
 
@@ -986,12 +1059,12 @@ const server = http.createServer(async (req, res) => {
 
         let battlePlan = null;
         try {
-          battlePlan = await generateBattlePlan(s.closerProfile, s.productContent, s.activeProductName, s.priorMemoryMd, clientName, s.dealCompany);
+          battlePlan = await generateBattlePlan(s.closerProfile, s.productContent, s.activeProductName, s.priorMemoryMd, clientName, s.dealCompany, s.callGoal);
         } catch (e) {
           console.error('[battle-plan]', e.message);   // non-fatal — the call still starts without it
         }
 
-        return sendJson(res, { ok: true, brief, battlePlan, clientName, productName: s.activeProductName });
+        return sendJson(res, { ok: true, brief, battlePlan, clientName, productName: s.activeProductName, goal: s.callGoal, goalLabel: s.callGoal ? GOALS[s.callGoal].label : '' });
       }
       if (urlPath === '/api/call/end' && req.method === 'POST') {
         const { outcome, savedDeal, savedDealNote } = await readBody(req);
@@ -1005,6 +1078,7 @@ const server = http.createServer(async (req, res) => {
           body: {
             user_id: user.id, deal_id: s.activeDealId, transcript: s.turns, cards: s.cards,
             summary: snapshotOf(memoryMd), product_name: s.activeProductName, duration_sec: duration,
+            goal: s.callGoal || '',
             outcome: outcome && ['closed', 'lost', 'follow_up'].includes(outcome) ? outcome : 'unknown',
             saved_deal: typeof savedDeal === 'boolean' ? savedDeal : null,
             saved_deal_note: savedDealNote || ''

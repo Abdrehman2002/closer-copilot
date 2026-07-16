@@ -22,7 +22,11 @@ export default function CallDetail() {
         <h2 className="text-xl font-bold tracking-tight">{call.deals?.name ?? 'Call'}</h2>
         {call.deal_id && <Link to={`/clients/${call.deal_id}`} className="text-sm text-primary hover:underline">View client</Link>}
       </div>
-      <div className="mb-5 text-sm text-muted-foreground">{call.product_name || '—'} · {fmtDate(call.created_at)} · {fmtDur(call.duration_sec)}</div>
+      <div className="mb-5 text-sm text-muted-foreground">
+        {call.product_name || '—'} · {fmtDate(call.created_at)} · {fmtDur(call.duration_sec)}
+        {call.goal && <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">Goal: {call.goal.replace('_', ' ')}</span>}
+        {call.outcome && call.outcome !== 'unknown' && <span className="ml-2 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Outcome: {call.outcome.replace('_', ' ')}</span>}
+      </div>
 
       <div className="mb-6 rounded-xl border border-border bg-card p-4">
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Summary</div>

@@ -31,6 +31,11 @@ export default function LiveCall() {
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-bold tracking-tight">Live Call{state.clientName ? ` — ${state.clientName}` : ''}</h2>
+        {state.goalLabel && (
+          <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary" title="The coach is playing for this goal">
+            Goal: {state.goalLabel.split('—')[0].trim()}
+          </span>
+        )}
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className={`h-2 w-2 rounded-full ${state.srvOn ? 'bg-success' : 'bg-muted-foreground/40'}`} /> coach
         </span>

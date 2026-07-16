@@ -23,6 +23,7 @@ export interface Turn { ch: 'me' | 'prospect'; text: string }
 export interface CardData { id?: number; tone: string; line: string; why: string; technique: string; at?: number; used?: boolean | null; confidence?: 'high' | 'low' }
 
 export type Outcome = 'unknown' | 'closed' | 'lost' | 'follow_up'
+export interface GoalOption { id: string; label: string }
 
 export interface CallDetail {
   id: string
@@ -33,6 +34,7 @@ export interface CallDetail {
   deal_id: string | null
   transcript: Turn[]
   cards: CardData[]
+  goal?: string
   outcome?: Outcome
   saved_deal?: boolean | null
   saved_deal_note?: string

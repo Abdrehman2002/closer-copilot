@@ -13,6 +13,7 @@ type State = {
   battlePlan: string | null
   clientName: string | null
   productName: string | null
+  goalLabel: string | null
   transcript: Turn[]
   cards: CardData[]
   streaming: CardData | null
@@ -23,6 +24,7 @@ type State = {
 const state: State = {
   active: false, status: '', srvOn: false,
   dealId: null, productId: null, brief: null, battlePlan: null, clientName: null, productName: null,
+  goalLabel: null,
   transcript: [], cards: [], streaming: null, interim: '', awaitingOutcome: false,
 }
 
@@ -86,10 +88,11 @@ export const liveCall = {
   get: () => state,
   subscribe(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn) },
 
-  async start(dealId: string, productId: string) {
-    const r = await api<{ brief: string | null; battlePlan: string | null; clientName: string | null; productName: string | null }>(
-      '/api/call/start', { dealId, productId })
+  async start(dealId: string, productId: string, goal?: string) {
+    const r = await api<{ brief: string | null; battlePlan: string | null; clientName: string | null; productName: string | null; goalLabel?: string }>(
+      '/api/call/start', { dealId, productId, goal })
     state.brief = r.brief; state.battlePlan = r.battlePlan; state.clientName = r.clientName; state.productName = r.productName
+    state.goalLabel = r.goalLabel || null
     state.transcript = []; state.cards = []; state.streaming = null; state.interim = ''; state.awaitingOutcome = false
     state.dealId = dealId; state.productId = productId
     state.status = 'Allow the mic, then pick your Meet tab with "Also share tab audio"…'; emit()
