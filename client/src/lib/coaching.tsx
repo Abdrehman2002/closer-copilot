@@ -17,19 +17,27 @@ export function renderLineHtml(raw: string): string {
 }
 
 export function CoachingCard({
-  id, tone, line, why, technique, used, streaming, onRate, className,
+  id, tone, line, why, technique, used, confidence, streaming, onRate, className,
 }: {
   id?: number; tone: string; line: string; why?: string; technique?: string; used?: boolean | null
-  streaming?: boolean; onRate?: (id: number, used: boolean) => void; className?: string
+  confidence?: 'high' | 'low'; streaming?: boolean; onRate?: (id: number, used: boolean) => void; className?: string
 }) {
   const silent = /silent/i.test(tone)
   return (
     <div className={cn('rounded-xl border border-border bg-card p-4 shadow-sm', className)}>
       <div className="mb-2 flex items-start justify-between gap-2">
-        <span className={cn(
-          'inline-block rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white',
-          silent ? 'bg-amber-600' : 'bg-primary'
-        )}>{tone || '…'}</span>
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className={cn(
+            'inline-block rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white',
+            silent ? 'bg-amber-600' : 'bg-primary'
+          )}>{tone || '…'}</span>
+          {confidence === 'low' && !streaming && (
+            <span className="rounded-md bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+              title="The coach is improvising beyond the playbook here — trust your own read">
+              improvised
+            </span>
+          )}
+        </span>
         {!streaming && onRate && id !== undefined && (
           <div className="flex shrink-0 items-center gap-1">
             <button

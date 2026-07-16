@@ -135,6 +135,10 @@ export default function Landing() {
               <div className="h-px flex-1 bg-border" /><span>new here?</span><div className="h-px flex-1 bg-border" />
             </div>
             <Button className="w-full" size="lg" variant="outline" disabled={busy} onClick={signUp}>Create an account</Button>
+            <p className="pt-1 text-center text-xs leading-relaxed text-muted-foreground">
+              Backed by a 30-day guarantee: we measure your close rate together —
+              if it doesn't improve, full refund.
+            </p>
           </div>
         </div>
       </div>

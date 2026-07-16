@@ -48,6 +48,7 @@ TONE: <from the tone vocabulary, ALWAYS with a pace, e.g. CALM · slow>
 LINE: <the exact words ME should say next>
 WHY: <max 10 words, the read on the moment>
 TECH: <named move: mirror, label, reframe, takeaway, assumptive close, silence, calibrated question, pain quantify>
+CONF: HIGH or LOW — HIGH when the move maps to a known objection/rebuttal or facts in the playbook & Client Brain; LOW when you are improvising beyond the given facts
 
 If HOLD: output only "DECISION: HOLD" and nothing else. Per the playbook, FIRE whenever a useful next line exists (most of the time the prospect just spoke); HOLD only for pure greetings/small talk. When in doubt, FIRE.
 
@@ -73,6 +74,9 @@ must be precise enough to perform without thinking:
 - If the right move is silence: LINE: … and TONE: SILENT — go quiet ~3 seconds, let them fill it
 - If DEAL MEMORY is present, USE it: reference what THIS prospect said in previous calls
   (their objections, commitments, stakeholders, stated pain) whenever it sharpens the move.
+- FACTS ARE SACRED: never state a price, discount, guarantee, statistic, or feature that is not
+  explicitly in the playbook, the Client Brain, or this call's transcript. If you don't know the
+  number, ask a question instead of guessing. Invented facts get the closer caught lying.
 
 Example:
 DECISION: FIRE
@@ -235,7 +239,7 @@ function showCard(s, card, since) {
     clearTimeout(s.cardFlushTimer); s.pendingCard = null;
     s.lastCardAt = Date.now();
     const id = s.cards.length;   // stable index into s.cards — the client rates a card by this id
-    s.cards.push({ id, at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique, used: null });
+    s.cards.push({ id, at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique, confidence: card.confidence || 'high', used: null });
     broadcast(s, { ...card, id });
     logEvent(s, { type: 'card', id, tone: card.tone, line: card.line, why: card.why, technique: card.technique });
     console.log('[coach]', s.userId.slice(0, 8), 'FIRE:', card.line);
@@ -251,8 +255,130 @@ function parseCoach(raw) {
     const m = raw.match(new RegExp('^' + k + ':\\s*(.*)$', 'm'));
     return m ? m[1].trim() : null;
   };
-  return { decision: get('DECISION'), tone: get('TONE'), line: get('LINE'), why: get('WHY'), tech: get('TECH') };
+  return { decision: get('DECISION'), tone: get('TONE'), line: get('LINE'), why: get('WHY'), tech: get('TECH'), conf: get('CONF') };
 }
+
+// === line-guard start ===
+// Never-wrong guardrails: a whispered line must not contain a price/number that isn't in
+// the playbook, Client Brain, or this call's transcript, and must never contain the
+// closer's never-say phrases. One hallucinated price on a live call destroys all trust.
+
+const NUM_WORDS = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+
+// parse a run of number words ("seven ninety seven", "fourteen hundred", "two thousand five hundred")
+// into every numeric reading a listener could take from it (spoken prices are ambiguous:
+// "seven ninety-seven" = 797, "fourteen fifty" = 1450 or 14.50 — we collect all candidates)
+function spokenRunValues(words) {
+  const vals = new Set();
+  const toks = words.map(w => w.toLowerCase().replace(/[^a-z]/g, '')).filter(Boolean);
+  if (!toks.length) return vals;
+  // sequential "hundred/thousand" grammar: X hundred [Y], X thousand [Y hundred] [Z].
+  // English additive order is strictly descending ("ninety seven" = 97; "seven ninety"
+  // is NOT 97 or 104 — it's a two-part price, handled below), so enforce that.
+  let total = 0, cur = 0, valid = true, lastWord = null;
+  for (const t of toks) {
+    if (t in NUM_WORDS) {
+      const v = NUM_WORDS[t];
+      if (lastWord != null && !(lastWord >= 20 && lastWord % 10 === 0 && v < 10)) { valid = false; break; }
+      cur += v; lastWord = v;
+    } else if (t === 'hundred') { cur = (cur || 1) * 100; lastWord = null; }
+    else if (t === 'thousand') { total += (cur || 1) * 1000; cur = 0; lastWord = null; }
+    else if (t === 'and') { lastWord = null; }
+    else { valid = false; break; }
+  }
+  if (valid) vals.add(total + cur);
+  // two-part spoken price: "seven ninety-seven" -> 7*100 + 97; "fourteen fifty" -> 1450
+  const nums = [];
+  let acc = null;
+  for (const t of toks) {
+    if (t in NUM_WORDS) {
+      const v = NUM_WORDS[t];
+      if (acc != null && acc >= 20 && acc % 10 === 0 && v < 10) { acc += v; }  // "ninety"+"seven"
+      else { if (acc != null) nums.push(acc); acc = v; }
+    } else if (t === 'hundred' || t === 'thousand' || t === 'and') {
+      if (acc != null) { nums.push(acc); acc = null; }
+      nums.length = 0; // grammar handled above; bail on mixed forms
+      break;
+    }
+  }
+  if (acc != null) nums.push(acc);
+  if (nums.length === 2) vals.add(nums[0] * 100 + nums[1]);
+  return vals;
+}
+
+// every numeric value present in a text (digits + spoken forms)
+function numbersIn(text) {
+  const vals = new Set();
+  const t = String(text || '');
+  for (const m of t.matchAll(/\d[\d,]*(?:\.\d+)?/g)) {
+    const v = parseFloat(m[0].replace(/,/g, ''));
+    if (!isNaN(v)) { vals.add(v); if (!Number.isInteger(v)) vals.add(Math.round(v * 100)); }  // $14.50 ⇄ "fourteen fifty"
+  }
+  // \b on both ends + longest-first alternation, so "nine" can't match inside "ninety"
+  // and "one" can't match inside "money"
+  const W = 'seventeen|thirteen|fourteen|eighteen|nineteen|sixteen|fifteen|eleven|twelve|hundred|thousand|seventy|eighty|ninety|twenty|thirty|forty|fifty|sixty|three|seven|eight|four|five|nine|zero|one|two|six|ten|and';
+  const wordRun = new RegExp('\\b((?:(?:' + W + ')[\\s-]+)*(?:' + W + '))\\b', 'gi');
+  for (const m of t.matchAll(wordRun)) {
+    for (const v of spokenRunValues(m[0].split(/[\s-]+/))) vals.add(v);
+  }
+  return vals;
+}
+
+const MONEY_CONTEXT = /(\$|dollar|buck|grand|\bk\b|a month|per month|monthly|a year|per year|set ?up|deposit|percent|%|-day\b|day guarantee|discount|refund|price|cost|fee|charge)/i;
+
+// numeric values in the line that appear in a money/claim context and therefore must be sourced
+function pricedNumbers(line) {
+  const out = new Set();
+  const t = String(line || '');
+  // scan windows: any number expression whose ±4-word neighborhood mentions money
+  const tokens = t.split(/\s+/);
+  for (let i = 0; i < tokens.length; i++) {
+    const windowText = tokens.slice(Math.max(0, i - 4), i + 5).join(' ');
+    if (!MONEY_CONTEXT.test(windowText)) continue;
+    for (const v of numbersIn(tokens.slice(Math.max(0, i - 3), i + 4).join(' '))) out.add(v);
+  }
+  return out;
+}
+
+const ALWAYS_ALLOWED = new Set([24, 7, 100]);  // "24/7", "a hundred percent"
+
+function validateLine(line, sources, neverSay) {
+  // 1) never-say phrases are a hard no, wherever they came from
+  for (const phrase of String(neverSay || '').split(/[,/;\n]+/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2)) {
+    if (String(line || '').toLowerCase().includes(phrase)) {
+      return { ok: false, issue: 'contains a never-say phrase: "' + phrase + '"' };
+    }
+  }
+  // 2) money/claim numbers must exist in the playbook / Client Brain / transcript
+  const priced = pricedNumbers(line);
+  if (priced.size) {
+    const allowed = numbersIn(sources);
+    for (const v of priced) {
+      if (v < 13 || ALWAYS_ALLOWED.has(v)) continue;    // small counts & idioms are fine
+      if (!allowed.has(v)) return { ok: false, issue: 'states a number not in the playbook/history: ' + v };
+    }
+  }
+  return { ok: true };
+}
+
+// partial lines get held back from the HUD the moment they start talking numbers/money,
+// so a bad price can never even flash on screen before validation completes
+function partialNeedsHold(partialLine, neverSay) {
+  const t = String(partialLine || '');
+  if (/\d/.test(t) || MONEY_CONTEXT.test(t)) return true;
+  if (/(hundred|thousand|ninety|eighty|seventy|sixty|fifty|forty|thirty|twenty)/i.test(t)) return true;
+  for (const phrase of String(neverSay || '').split(/[,/;\n]+/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2)) {
+    const firstWord = phrase.split(/\s+/)[0];
+    if (firstWord.length >= 4 && t.toLowerCase().includes(firstWord)) return true;
+  }
+  return false;
+}
+// === line-guard end ===
 
 async function coach(s) {
   if (s.coachBusy) { s.coachQueued = true; return; }
@@ -263,6 +389,12 @@ async function coach(s) {
     const recent = s.turns.slice(-24)
       .map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text)
       .join('\n');
+    const systemPrompt = buildSystemPrompt(s);
+    const userPrompt = 'LIVE TRANSCRIPT (most recent last):\n' + recent + '\n\nDecide now.';
+    // guard inputs: every number the line is ALLOWED to say must come from here
+    const guardSources = (s.productContent || '') + '\n' + (s.priorMemoryMd || '') + '\n' + recent;
+    const neverSay = (s.closerProfile && s.closerProfile.never_say) || '';
+
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
@@ -272,8 +404,8 @@ async function coach(s) {
         max_tokens: 200,
         stream: true,
         messages: [
-          { role: 'system', content: buildSystemPrompt(s) },
-          { role: 'user', content: 'LIVE TRANSCRIPT (most recent last):\n' + recent + '\n\nDecide now.' }
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
         ]
       })
     });
@@ -281,7 +413,7 @@ async function coach(s) {
 
     const reader = r.body.getReader();
     const dec = new TextDecoder();
-    let sse = '', raw = '', lastSentLine = null;
+    let sse = '', raw = '', lastSentLine = null, partialHeld = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -300,17 +432,56 @@ async function coach(s) {
         } catch {}
       }
       const p = parseCoach(raw);
-      // stream partial words to the HUD only while the closer is NOT mid-sentence,
-      // so a new card never lands on top of a line they're still delivering
+      // stream partial words to the HUD only while the closer is NOT mid-sentence — and
+      // freeze the partial stream the moment the line starts talking numbers/money, so an
+      // unvalidated price can never flash on screen (the validated final replaces it)
       if (p.decision === 'FIRE' && p.tone && p.line !== null && p.line !== lastSentLine && !repTalking(s)) {
+        if (partialNeedsHold(p.line, neverSay)) { partialHeld = true; continue; }
+        if (partialHeld) continue;
         lastSentLine = p.line;
         broadcast(s, { type: 'card-stream', tone: p.tone, line: p.line, why: '', technique: '', done: false });
       }
     }
 
-    const p = parseCoach(raw);
+    let p = parseCoach(raw);
     if (p.decision === 'FIRE' && p.line) {
-      const card = { type: 'card-stream', tone: p.tone || '', line: p.line, why: p.why || '', technique: p.tech || '', done: true };
+      // fact-check the finished line; one corrective retry, then withhold
+      let v = validateLine(p.line, guardSources, neverSay);
+      if (!v.ok) {
+        console.log('[guard]', s.userId.slice(0, 8), 'REJECTED:', v.issue, '|', p.line);
+        logEvent(s, { type: 'guard-reject', issue: v.issue, line: p.line });
+        const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: LIVE_MODEL, temperature: 0.3, max_tokens: 200,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+              { role: 'assistant', content: raw },
+              { role: 'user', content: 'REJECTED — your line ' + v.issue + '. Regenerate the full response in the same format. Use ONLY prices, numbers and claims that appear in the playbook, Client Brain or transcript, and never use forbidden phrases. If you cannot source the number, ask a question instead.' }
+            ]
+          })
+        });
+        const j2 = await r2.json();
+        if (j2.error) throw new Error(j2.error.message);
+        const raw2 = (j2.choices[0].message.content || '');
+        p = parseCoach(raw2);
+        v = p.decision === 'FIRE' && p.line ? validateLine(p.line, guardSources, neverSay) : { ok: false, issue: 'no line on retry' };
+        if (!v.ok) {
+          console.log('[guard]', s.userId.slice(0, 8), 'WITHHELD after retry:', v.issue);
+          logEvent(s, { type: 'guard-withheld', issue: v.issue });
+          if (lastSentLine !== null) broadcast(s, { type: 'card-stream', tone: '', line: lastSentLine, why: '', technique: '', done: true });
+          broadcast(s, { type: 'status', msg: 'coach: line withheld (failed fact-check) — trust your read' });
+          s.coachBusy = false;
+          if (s.coachQueued) { s.coachQueued = false; coach(s); }
+          return;
+        }
+      }
+      const card = {
+        type: 'card-stream', tone: p.tone || '', line: p.line, why: p.why || '', technique: p.tech || '',
+        confidence: /low/i.test(p.conf || '') ? 'low' : 'high', done: true
+      };
       showCard(s, card, Date.now());   // holds until the closer stops talking
     } else {
       if (lastSentLine !== null) broadcast(s, { type: 'card-stream', tone: '', line: lastSentLine, why: '', technique: '', done: true });
