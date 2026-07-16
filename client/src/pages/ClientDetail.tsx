@@ -7,8 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Brain } from '@/components/Brain'
+import { ClientDocs } from '@/components/ClientDocs'
 import { DetailSkeleton } from '@/components/Skeleton'
-import { ArrowLeft, Download, Phone } from 'lucide-react'
+import { ArrowLeft, Download, Phone, BellPlus } from 'lucide-react'
 
 export default function ClientDetail() {
   const { id } = useParams()
@@ -33,6 +34,16 @@ export default function ClientDetail() {
   }
   const brain = (c.memory_md || '').trim()
 
+  const addReminder = async () => {
+    const title = window.prompt('Remind you to…')
+    if (!title) return
+    const daysStr = window.prompt('In how many days?', '3')
+    const days = Number(daysStr)
+    if (!daysStr || isNaN(days) || days < 0) return
+    const dueAt = new Date(Date.now() + days * 86400000).toISOString()
+    await api('/api/reminders', { title, dueAt, dealId: id })
+  }
+
   return (
     <div className="mx-auto max-w-[900px] px-8 py-7">
       <Link to="/clients" className="mb-4 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="h-4 w-4" /> Clients</Link>
@@ -44,10 +55,15 @@ export default function ClientDetail() {
           <Button variant="outline" size="sm" onClick={() => setStatus('open')}>Open</Button>
           <Button variant="outline" size="sm" onClick={() => setStatus('won')}>Mark Won</Button>
           <Button variant="outline" size="sm" onClick={() => setStatus('lost')}>Mark Lost</Button>
+          <Button variant="outline" size="sm" onClick={addReminder}><BellPlus className="h-3.5 w-3.5" /> Remind me</Button>
           <Button size="sm" onClick={() => navigate(`/new?client=${id}`)}><Phone className="h-3.5 w-3.5" /> New call</Button>
         </div>
       </div>
-      <div className="mb-6 text-sm text-muted-foreground">{c.company || '—'}</div>
+      <div className="mb-1 text-sm text-muted-foreground">{c.company || '—'}</div>
+      <div className="mb-6">
+        {c.status === 'won' && c.close_amount != null && <span className="text-sm font-medium text-success">Closed — ${c.close_amount.toLocaleString()}</span>}
+        {c.status === 'lost' && c.close_reason && <span className="text-sm font-medium text-destructive">Lost — {c.close_reason}</span>}
+      </div>
 
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold">Client Brain <span className="font-normal text-muted-foreground">· auto-updated after every call</span></h3>
@@ -55,6 +71,10 @@ export default function ClientDetail() {
       </div>
       <div className="rounded-xl border border-border bg-card p-5">
         {brain ? <Brain md={c.memory_md} /> : <span className="text-sm text-muted-foreground">No history yet — your first call will build this.</span>}
+      </div>
+
+      <div className="mt-6">
+        <ClientDocs dealId={id!} />
       </div>
 
       <div className="mt-6">

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { DashboardSkeleton } from '@/components/Skeleton'
 import {
   Phone, Clock3, PhoneCall, Target, Snowflake, ArrowRight, UserPlus,
-  CheckCircle2, BookOpen, Radar, Lightbulb, Trophy, Plus, Zap,
+  CheckCircle2, BookOpen, Radar, Lightbulb, Trophy, Plus, Zap, Bell, Check,
 } from 'lucide-react'
 
 const META: Record<MoveType, { title: string; blurb: string; icon: any; verb: string }> = {
@@ -29,7 +29,9 @@ const dayChip = (days: number | null) => {
 export default function Home() {
   const [d, setD] = useState<DashboardData | null>(null)
   const navigate = useNavigate()
-  useEffect(() => { api<DashboardData>('/api/dashboard').then(setD) }, [])
+  const load = () => api<DashboardData>('/api/dashboard').then(setD)
+  useEffect(() => { load() }, [])
+  const markReminderDone = async (id: string) => { await api(`/api/reminders/${id}`, { done: true }, 'PATCH'); load() }
 
   const grouped = useMemo(() => {
     const g: Record<MoveType, NextMove[]> = { waiting: [], follow_up: [], ready: [], cold: [], motion: [], first: [] }
@@ -94,6 +96,28 @@ export default function Home() {
               <Button variant="outline" className="justify-start" onClick={() => navigate('/playbooks/new')}><Plus className="h-4 w-4" /> New playbook</Button>
             </div>
           </RailCard>
+
+          {d.reminders.length > 0 && (
+            <RailCard title="Reminders" icon={Bell}>
+              <div className="space-y-2">
+                {d.reminders.map((r) => (
+                  <div key={r.id} className="flex items-start gap-2">
+                    <button onClick={() => markReminderDone(r.id)} title="Mark done"
+                      className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border border-border text-transparent transition-colors hover:border-success hover:text-success">
+                      <Check className="h-3 w-3" />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[13px] leading-snug">{r.title}</div>
+                      <div className={`text-[11px] ${r.overdue ? 'font-medium text-destructive' : 'text-muted-foreground'}`}>
+                        {r.overdue ? 'Overdue' : new Date(r.dueAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        {r.clientName && r.dealId && <> · <Link to={`/clients/${r.dealId}`} className="hover:underline">{r.clientName}</Link></>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </RailCard>
+          )}
 
           <RailCard title="Playbook cues" icon={BookOpen}
             action={d?.cues && <Link to={`/playbooks/${d.cues.playbookId}`} className="ml-auto text-xs text-primary hover:underline">Edit</Link>}>

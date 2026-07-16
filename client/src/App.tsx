@@ -23,6 +23,8 @@ const NewCall = lazy(() => import('@/pages/NewCall'))
 const LiveCall = lazy(() => import('@/pages/LiveCall'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Metrics = lazy(() => import('@/pages/Metrics'))
+const Billing = lazy(() => import('@/pages/Billing'))
+const Knowledge = lazy(() => import('@/pages/Knowledge'))
 
 const Loading = () => <div className="grid h-screen place-items-center text-sm text-muted-foreground">Loading…</div>
 
@@ -61,6 +63,8 @@ export default function App() {
           <Route path="/live" element={<Suspense fallback={<PageSkeleton />}><LiveCall /></Suspense>} />
           <Route path="/settings" element={<Suspense fallback={<PageSkeleton />}><Settings /></Suspense>} />
           <Route path="/metrics" element={<Suspense fallback={<PageSkeleton />}><Metrics /></Suspense>} />
+          <Route path="/billing" element={<Suspense fallback={<PageSkeleton />}><Billing /></Suspense>} />
+          <Route path="/knowledge" element={<Suspense fallback={<PageSkeleton />}><Knowledge /></Suspense>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

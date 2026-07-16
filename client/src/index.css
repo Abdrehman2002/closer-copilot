@@ -30,8 +30,34 @@
     --radius: 0.6rem;
   }
 
+  .dark {
+    /* Dark variant — same structure, inverted surfaces, same blue accent */
+    --background: 222 24% 7%;
+    --foreground: 210 20% 96%;
+    --card: 222 20% 10%;
+    --card-foreground: 210 20% 96%;
+    --popover: 222 24% 9%;
+    --popover-foreground: 210 20% 96%;
+    --primary: 214 95% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 15%;
+    --secondary-foreground: 210 20% 96%;
+    --muted: 220 16% 14%;
+    --muted-foreground: 218 12% 62%;
+    --accent: 220 16% 17%;
+    --accent-foreground: 210 20% 96%;
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 55% 48%;
+    --success-foreground: 0 0% 100%;
+    --border: 220 16% 18%;
+    --input: 220 16% 20%;
+    --ring: 214 95% 58%;
+  }
+
   * { @apply border-border; }
   html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;

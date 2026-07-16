@@ -123,7 +123,7 @@ export const liveCall = {
   },
 
   /** Submit the outcome (or skip) and run the post-call analysis + save. */
-  async finish(meta: { outcome?: Outcome; savedDeal?: boolean; savedDealNote?: string } = {}) {
+  async finish(meta: { outcome?: Outcome; savedDeal?: boolean; savedDealNote?: string; outcomeAmount?: number; outcomeReason?: string } = {}) {
     state.awaitingOutcome = false
     state.status = 'Analyzing & saving the Client Brain…'; emit()
     const r = await api<{ dealId?: string }>('/api/call/end', meta)

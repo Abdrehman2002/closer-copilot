@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import type { Metrics as MetricsData } from '@/lib/types'
 import { DashboardSkeleton } from '@/components/Skeleton'
-import { ThumbsUp, Trophy, Target, CalendarDays } from 'lucide-react'
+import { ThumbsUp, Trophy, Target, CalendarDays, DollarSign, Mic } from 'lucide-react'
 
 const pct = (n: number | null) => (n == null ? '—' : `${n}%`)
 
@@ -18,6 +18,8 @@ export default function Metrics() {
     { label: 'Deals saved', value: String(m.savedDeals), sub: 'flagged by you post-call', icon: Trophy },
     { label: 'Close rate', value: pct(m.closeRatePct), sub: `${m.decidedCalls} calls with an outcome`, icon: Target },
     { label: 'Active days', value: String(m.activeDays), sub: `${m.totalCalls} calls total`, icon: CalendarDays },
+    { label: 'Revenue won', value: `$${m.revenue.toLocaleString()}`, sub: `${m.wonDeals} deal${m.wonDeals === 1 ? '' : 's'} closed`, icon: DollarSign },
+    { label: 'Talk ratio', value: pct(m.talkRatioPct), sub: 'your share of words spoken (approx.)', icon: Mic },
   ]
 
   return (
@@ -25,7 +27,7 @@ export default function Metrics() {
       <h2 className="text-xl font-bold tracking-tight">Your metrics</h2>
       <p className="mt-1 text-sm text-muted-foreground">Your own track record with the copilot — this is what proves it works.</p>
 
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3">
         {tiles.map((t) => (
           <div key={t.label} className="rounded-xl border border-border bg-card p-4">
             <t.icon className="mb-2 h-4 w-4 text-primary" />

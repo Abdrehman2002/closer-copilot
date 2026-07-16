@@ -29,6 +29,25 @@ or your own VPS with Node 20+.
    not in git), run the same build command, then `node server.js` behind a
    reverse proxy (Caddy/nginx) that terminates HTTPS.
 
+## Steps (Railway) — this is what we're actually hosting on
+
+1. Repo is on GitHub: `Abdrehman2002/closer-copilot` (public).
+2. railway.app → New Project → Deploy from GitHub repo → pick this repo.
+3. Railway auto-detects Node; override the build/start commands under
+   Settings → Deploy (same as Render):
+   - Build command: `npm install && cd client && npm install && npm run build`
+   - Start command: `node server.js`
+4. Settings → Networking → **Generate Domain** (this gives you the public
+   `https://….up.railway.app` URL and terminates HTTPS automatically — same
+   requirement as Render, mic/tab-audio capture needs HTTPS).
+5. Variables tab — same list as the Render env vars above:
+   `DEEPGRAM_API_KEY`, `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`,
+   `LIVE_MODEL=gpt-4.1-mini`, `PREP_MODEL=gpt-4.1`, `ANALYSIS_MODEL=gpt-4.1-mini`,
+   `HOST=0.0.0.0`. Do **not** set `PORT` — Railway injects it, same as Render.
+6. Deploy. Railway keeps the service always-on by default (no free-tier sleep
+   like Render's free tier), which matters here — a closer opening the app
+   right before a call shouldn't hit a cold-start delay.
+
 ## Supabase settings for pilots (dashboard, one time)
 
 - Auth → Providers → Email: if the "confirm email" step annoys pilots, either
@@ -45,11 +64,13 @@ or your own VPS with Node 20+.
    **Overlay** and drag it under your camera.
 3. Say at the start of the call: "I use an AI assistant that transcribes our call —
    that okay?" (recording-consent hygiene).
-4. **End Call** when done → answer the two quick wrap-up questions (outcome + did it
-   save a deal) → the Client Brain saves automatically; next call with the same
-   client starts with a pre-call brief + battle plan.
-5. Check **Metrics** anytime for your own line-acceptance rate, close rate, and
-   saved-deal count.
+4. **End Call** when done → the quick wrap-up (outcome + amount/reason + did it save a
+   deal) → the Client Brain and a private AI review of your own delivery both save
+   automatically; next call with the same client starts with a pre-call brief + battle plan.
+5. Check **Metrics** anytime for your own line-acceptance rate, close rate, revenue
+   won, and saved-deal count. Check **Billing** for real token/cost spend. Add
+   reference docs (pricing sheets, competitor comparisons) under **Knowledge** —
+   the coach pulls from them live when relevant.
 
 ## Notes
 

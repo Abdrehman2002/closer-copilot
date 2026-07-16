@@ -38,6 +38,8 @@ export interface CallDetail {
   outcome?: Outcome
   saved_deal?: boolean | null
   saved_deal_note?: string
+  review_score?: number | null
+  review_notes?: string
   deals?: { name: string; company: string } | null
 }
 
@@ -48,8 +50,13 @@ export interface ClientDetail {
   status: Status
   notes: string
   memory_md: string
+  close_amount?: number | null
+  close_reason?: string
   calls: { id: string; created_at: string; summary: string; duration_sec: number }[]
 }
+
+export interface DocumentRow { id: string; name: string; content: string; scope: 'global' | 'deal'; deal_id: string | null; created_at?: string }
+export interface ReminderRow { id: string; title: string; dealId: string | null; dueAt: string; clientName?: string | null; overdue?: boolean }
 
 export interface Product { id: string; name: string; content?: string }
 
@@ -72,6 +79,7 @@ export interface DashboardData {
   radar: { objection: string; count: number }[]
   gaps: { objection: string; count: number }[]
   wins: { id: string; name: string; company: string }[]
+  reminders: ReminderRow[]
 }
 
 export type Warmth = 'hot' | 'warming' | 'cold'
@@ -117,6 +125,19 @@ export interface Metrics {
   decidedCalls: number
   activeDays: number
   last14: { day: string; calls: number }[]
+  talkRatioPct: number | null
+  revenue: number
+  wonDeals: number
+}
+
+export interface Billing {
+  totalCost: number
+  totalTokens: number
+  events: number
+  unpricedEvents: number
+  byModel: { model: string; tokens: number; cost: number; unpriced: boolean }[]
+  byKind: { kind: string; tokens: number; cost: number }[]
+  last14: { day: string; cost: number }[]
 }
 
 // live-call streaming event from /events

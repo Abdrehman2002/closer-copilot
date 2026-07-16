@@ -5,7 +5,8 @@ import type { CallDetail as Call } from '@/lib/types'
 import { fmtDate, fmtDur } from '@/lib/format'
 import { CoachingCard } from '@/lib/coaching'
 import { DetailSkeleton } from '@/components/Skeleton'
-import { ArrowLeft } from 'lucide-react'
+import { Brain } from '@/components/Brain'
+import { ArrowLeft, Sparkles } from 'lucide-react'
 
 export default function CallDetail() {
   const { id } = useParams()
@@ -32,6 +33,19 @@ export default function CallDetail() {
         <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Summary</div>
         <p className="text-sm leading-relaxed">{call.summary || '—'}</p>
       </div>
+
+      {call.review_notes && (
+        <div className="mb-6 rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span className="text-xs font-bold uppercase tracking-wide text-primary">Coach's review of your delivery</span>
+            {call.review_score != null && (
+              <span className="ml-auto rounded-full bg-primary px-2.5 py-0.5 text-[12px] font-bold text-primary-foreground">{call.review_score}/100</span>
+            )}
+          </div>
+          <Brain md={call.review_notes} />
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section>

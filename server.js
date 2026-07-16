@@ -39,6 +39,22 @@ if (!DG_KEY || !OPENAI_KEY || !SUPA_URL || !SUPA_KEY) {
   process.exit(1);
 }
 
+// USD per 1M tokens [input, output]. Verified against OpenAI's published pricing at build
+// time — re-check periodically, pricing changes. An unpriced model shows as "unpriced" in
+// billing rather than silently reporting $0 (a wrong number is worse than a visible gap).
+const PRICE_PER_1M = {
+  'gpt-4.1': [2.00, 8.00],
+  'gpt-4.1-mini': [0.40, 1.60],
+  'gpt-4.1-nano': [0.10, 0.40],
+  'gpt-4o': [2.50, 10.00],
+  'gpt-4o-mini': [0.15, 0.60],
+};
+function costUsd(model, promptTokens, completionTokens) {
+  const p = PRICE_PER_1M[model];
+  if (!p) return null;
+  return (promptTokens / 1e6) * p[0] + (completionTokens / 1e6) * p[1];
+}
+
 const PLAYBOOK = fs.readFileSync(path.join(__dirname, 'playbook.md'), 'utf8');
 const PRODUCT_TEMPLATE = fs.readFileSync(path.join(__dirname, 'products', 'vextria-hvac.md'), 'utf8');
 
@@ -107,6 +123,18 @@ async function sbRest(pathq, jwt, opts = {}) {
   return t ? JSON.parse(t) : null;
 }
 
+// fire-and-forget token/cost logging — never blocks or fails the call it's attached to
+function logUsage(jwt, userId, dealId, kind, model, usage) {
+  if (!usage) return;
+  sbRest('usage_events', jwt, {
+    method: 'POST', prefer: 'return=minimal',
+    body: {
+      user_id: userId, deal_id: dealId || null, kind, model,
+      prompt_tokens: usage.prompt_tokens || 0, completion_tokens: usage.completion_tokens || 0
+    }
+  }).catch(e => console.error('[usage-log]', e.message));
+}
+
 const tokenCache = new Map();   // jwt -> {user, exp}
 async function getUser(jwt) {
   if (!jwt) return null;
@@ -135,7 +163,7 @@ function getSession(userId) {
       turns: [], cards: [], events: new Set(), callLog: null, callStartAt: 0,
       activeDealId: null, activeProductId: null, activeProductName: '',
       productContent: '', memory: '', dealState: null, dealName: '', dealCompany: '',
-      closerProfile: null, callGoal: '',
+      closerProfile: null, callGoal: '', kbDocs: [],
       lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
       simIdx: 0
@@ -269,6 +297,25 @@ function detectTrigger(turns) {
   return 'Neutral moment — no strong signal, use judgment on whether a line helps.';
 }
 
+// keyword-match the closer's uploaded knowledge base against the live conversation. Docs are
+// loaded ONCE at call/start (s.kbDocs) and searched purely in-memory on every coach tick — no
+// extra Supabase round-trip on the latency-critical live path.
+function kbBlock(s) {
+  const docs = s.kbDocs || [];
+  if (!docs.length) return '';
+  const recentText = s.turns.slice(-6).map(t => t.text).join(' ');
+  const queryTokens = new Set(kwTokens(recentText));
+  if (!queryTokens.size) return '';
+  const scored = docs
+    .map(d => ({ d, score: kwTokens(d.name + ' ' + d.content).filter(t => queryTokens.has(t)).length }))
+    .filter(x => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2);
+  if (!scored.length) return '';
+  return '\n\nKNOWLEDGE BASE (matched to what\'s being discussed right now — use it if it sharpens the line, otherwise ignore):\n' +
+    scored.map(x => '### ' + x.d.name + '\n' + x.d.content.slice(0, 800)).join('\n\n');
+}
+
 function buildSystemPrompt(s) {
   // Keep the big stable content (intro + closer profile + playbook + product + format rules)
   // as one prefix so OpenAI prompt-caching serves it near-instantly on every call after the
@@ -287,6 +334,7 @@ function buildSystemPrompt(s) {
     (s.productContent || '(no product knowledge provided)') + '\n\n' +
     FORMAT_RULES +
     (s.memory || '') +
+    kbBlock(s) +
     '\n\nLIVE TRIGGER (read on the moment right now): ' + detectTrigger(s.turns) +
     (s.callGoal && GOALS[s.callGoal] ? '\nREMEMBER: serve the meeting goal (' + GOALS[s.callGoal].label + ') — not the default close drive.' : '');
 }
@@ -469,6 +517,7 @@ async function coach(s) {
         temperature: 0.4,
         max_tokens: 200,
         stream: true,
+        stream_options: { include_usage: true },
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
@@ -479,7 +528,7 @@ async function coach(s) {
 
     const reader = r.body.getReader();
     const dec = new TextDecoder();
-    let sse = '', raw = '', lastSentLine = null, partialHeld = false;
+    let sse = '', raw = '', lastSentLine = null, partialHeld = false, streamUsage = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -494,6 +543,7 @@ async function coach(s) {
         if (payload === '[DONE]') continue;
         try {
           const d = JSON.parse(payload);
+          if (d.usage) streamUsage = d.usage;   // final chunk (stream_options.include_usage)
           raw += (d.choices && d.choices[0] && d.choices[0].delta && d.choices[0].delta.content) || '';
         } catch {}
       }
@@ -508,6 +558,8 @@ async function coach(s) {
         broadcast(s, { type: 'card-stream', tone: p.tone, line: p.line, why: '', technique: '', done: false });
       }
     }
+
+    logUsage(s.jwt, s.userId, s.activeDealId, 'live', LIVE_MODEL, streamUsage);
 
     let p = parseCoach(raw);
     if (p.decision === 'FIRE' && p.line) {
@@ -531,6 +583,7 @@ async function coach(s) {
         });
         const j2 = await r2.json();
         if (j2.error) throw new Error(j2.error.message);
+        logUsage(s.jwt, s.userId, s.activeDealId, 'live_retry', LIVE_MODEL, j2.usage);
         const raw2 = (j2.choices[0].message.content || '');
         p = parseCoach(raw2);
         v = p.decision === 'FIRE' && p.line ? validateLine(p.line, guardSources, neverSay) : { ok: false, issue: 'no line on retry' };
@@ -690,7 +743,7 @@ ${transcript}`
   });
   const j = await r.json();
   if (j.error) throw new Error(j.error.message);
-  return (j.choices[0].message.content || '').trim();
+  return { text: (j.choices[0].message.content || '').trim(), usage: j.usage };
 }
 
 // compile a salesperson's interview answers into a rich structured playbook the coach reads
@@ -733,7 +786,7 @@ Rules: use ONLY facts from their answers — NEVER invent prices, proof, guarant
   });
   const j = await r.json();
   if (j.error) throw new Error(j.error.message);
-  return (j.choices[0].message.content || '').trim();
+  return { text: (j.choices[0].message.content || '').trim(), usage: j.usage };
 }
 
 // pre-call tactical battle plan — runs once before each call, spends the best model
@@ -779,7 +832,45 @@ Rules: ground every line in the ACTUAL product info and Client Brain given — n
   });
   const j = await r.json();
   if (j.error) throw new Error(j.error.message);
-  return (j.choices[0].message.content || '').trim();
+  return { text: (j.choices[0].message.content || '').trim(), usage: j.usage };
+}
+
+// post-call AI review: scores the CLOSER's delivery (not the deal), so they get sharper
+// between calls — graded against whatever the meeting's actual goal was, not a generic close bar
+async function reviewCall(turns, productName, goal) {
+  const transcript = turns.map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text).join('\n');
+  const goalLabel = goal && GOALS[goal] ? GOALS[goal].label : 'general sales call';
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: ANALYSIS_MODEL,
+      temperature: 0.3,
+      max_tokens: 700,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a sales coach reviewing a CLOSER's own delivery on a call that just ended — not the prospect, not the deal. Judge them against the call's actual goal, not a generic "did they close" bar.
+Output ONLY Markdown, EXACTLY this format:
+Score: NN/100
+## Strengths
+1-3 short bullets — real, specific moments from the transcript, not generic praise.
+## To sharpen
+1-3 short bullets — specific, actionable misses (e.g. "talked over the prospect at the price moment", "didn't quantify the pain before pitching"). Be direct, this is for their eyes only.
+## Key moment
+The single most important moment of the call and what to do differently next time.
+Rules: base everything ONLY on what's actually in the transcript. Score fairly against the stated goal (e.g. a discovery call that got great pain on record scores high even with no pitch).`
+        },
+        { role: 'user', content: `CALL GOAL: ${goalLabel}\nPRODUCT: ${productName || 'unspecified'}\n\nTRANSCRIPT:\n${transcript}` }
+      ]
+    })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  const text = (j.choices[0].message.content || '').trim();
+  const score = parseInt((text.match(/Score:\s*(\d+)/i) || [])[1], 10);
+  const notes = text.replace(/^Score:\s*\d+\/100\s*\n*/i, '').trim();   // score lives in its own column
+  return { text: notes, score: isNaN(score) ? null : Math.max(0, Math.min(100, score)), usage: j.usage };
 }
 
 // canned ME+prospect pairs for the Test button
@@ -891,8 +982,58 @@ const server = http.createServer(async (req, res) => {
 
       if (urlPath === '/api/playbook/compile' && req.method === 'POST') {
         const { answers } = await readBody(req);
-        const content = await compilePlaybook(answers || {});
-        return sendJson(res, { ok: true, content });
+        const out = await compilePlaybook(answers || {});
+        logUsage(jwt, user.id, null, 'playbook', ANALYSIS_MODEL, out.usage);
+        return sendJson(res, { ok: true, content: out.text });
+      }
+
+      // ---- knowledge base ----
+      if (urlPath === '/api/documents' && req.method === 'GET') {
+        const dealFilter = new URL(req.url, 'http://x').searchParams.get('dealId');
+        const q = dealFilter
+          ? 'documents?select=id,name,content,scope,deal_id,created_at&or=(scope.eq.global,deal_id.eq.' + dealFilter + ')&order=created_at.desc'
+          : 'documents?select=id,name,content,scope,deal_id,created_at&order=created_at.desc';
+        const docs = await sbRest(q, jwt);
+        return sendJson(res, { documents: docs });
+      }
+      if (urlPath === '/api/documents' && req.method === 'POST') {
+        const { name, content, dealId } = await readBody(req);
+        if (!name) return sendJson(res, { error: 'name required' }, 400);
+        const row = (await sbRest('documents', jwt, {
+          method: 'POST',
+          body: { user_id: user.id, name, content: content || '', scope: dealId ? 'deal' : 'global', deal_id: dealId || null }
+        }))[0];
+        return sendJson(res, { ok: true, document: row });
+      }
+      if (seg[0] === 'api' && seg[1] === 'documents' && seg[2] && req.method === 'DELETE') {
+        await sbRest('documents?id=eq.' + seg[2], jwt, { method: 'DELETE' });
+        return sendJson(res, { ok: true });
+      }
+
+      // ---- reminders ----
+      if (urlPath === '/api/reminders' && req.method === 'GET') {
+        const rows = await sbRest('reminders?select=id,title,deal_id,due_at,done,deals(name,company)&done=eq.false&order=due_at.asc', jwt);
+        return sendJson(res, {
+          reminders: rows.map(r => ({ id: r.id, title: r.title, dealId: r.deal_id, dueAt: r.due_at, clientName: r.deals ? r.deals.name : null }))
+        });
+      }
+      if (urlPath === '/api/reminders' && req.method === 'POST') {
+        const { title, dueAt, dealId } = await readBody(req);
+        if (!title || !dueAt) return sendJson(res, { error: 'title and dueAt required' }, 400);
+        const row = (await sbRest('reminders', jwt, {
+          method: 'POST', body: { user_id: user.id, title, due_at: dueAt, deal_id: dealId || null }
+        }))[0];
+        return sendJson(res, { ok: true, reminder: row });
+      }
+      if (seg[0] === 'api' && seg[1] === 'reminders' && seg[2] && req.method === 'PATCH') {
+        const body = await readBody(req);
+        const patch = {}; if ('done' in body) patch.done = !!body.done;
+        await sbRest('reminders?id=eq.' + seg[2], jwt, { method: 'PATCH', body: patch });
+        return sendJson(res, { ok: true });
+      }
+      if (seg[0] === 'api' && seg[1] === 'reminders' && seg[2] && req.method === 'DELETE') {
+        await sbRest('reminders?id=eq.' + seg[2], jwt, { method: 'DELETE' });
+        return sendJson(res, { ok: true });
       }
 
       // ---- clients (deals) ----
@@ -988,10 +1129,16 @@ const server = http.createServer(async (req, res) => {
       // ---- full dashboard: moves + focus + playbook cues + objection radar + gaps + wins ----
       if (urlPath === '/api/dashboard' && req.method === 'GET') {
         const now = Date.now();
-        const [deals, products] = await Promise.all([
+        const [deals, products, reminderRows] = await Promise.all([
           sbRest('deals?select=id,name,company,status,memory_md,calls(created_at)&order=created_at.desc', jwt),
           sbRest('products?select=id,name,content&order=created_at', jwt),
+          sbRest('reminders?select=id,title,deal_id,due_at,deals(name)&done=eq.false&order=due_at.asc&limit=8', jwt),
         ]);
+        const nowIso = new Date().toISOString();
+        const reminders = reminderRows.map(r => ({
+          id: r.id, title: r.title, dealId: r.deal_id, dueAt: r.due_at,
+          clientName: r.deals ? r.deals.name : null, overdue: r.due_at < nowIso
+        }));
         const openDeals = deals.filter(d => d.status === 'open');
         const moves = openDeals.map(d => dealMove(d, now)).sort((a, b) => b.score - a.score);
 
@@ -1020,7 +1167,7 @@ const server = http.createServer(async (req, res) => {
 
         const wins = deals.filter(d => d.status === 'won').slice(0, 5).map(d => ({ id: d.id, name: d.name, company: d.company }));
 
-        return sendJson(res, { moves, focus: moves[0] || null, cues, radar, gaps, wins });
+        return sendJson(res, { moves, focus: moves[0] || null, cues, radar, gaps, wins, reminders });
       }
 
       // ---- call lifecycle ----
@@ -1032,14 +1179,16 @@ const server = http.createServer(async (req, res) => {
         s.turns = []; s.cards = []; s.callLog = null; s.lastCardAt = 0; s.callStartAt = Date.now();
         s.memory = ''; s.priorMemoryMd = ''; s.dealName = ''; s.dealCompany = '';
 
-        const [prodRow, profRows] = await Promise.all([
+        const [prodRow, profRows, kbRows] = await Promise.all([
           sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt),
           sbRest('profiles?user_id=eq.' + user.id + '&select=tone,framework,signature_phrases,never_say', jwt),
+          sbRest('documents?select=name,content&' + (s.activeDealId ? 'or=(scope.eq.global,deal_id.eq.' + s.activeDealId + ')' : 'scope=eq.global'), jwt),
         ]);
         const prod = prodRow[0];
         s.productContent = (prod && prod.content) || '';
         s.activeProductName = (prod && prod.name) || '';
         s.closerProfile = profRows[0] || null;
+        s.kbDocs = kbRows || [];   // cached for the whole call — kbBlock() searches this in-memory, no per-tick DB hit
 
         let brief = null, clientName = null;
         if (s.activeDealId) {
@@ -1059,7 +1208,9 @@ const server = http.createServer(async (req, res) => {
 
         let battlePlan = null;
         try {
-          battlePlan = await generateBattlePlan(s.closerProfile, s.productContent, s.activeProductName, s.priorMemoryMd, clientName, s.dealCompany, s.callGoal);
+          const bp = await generateBattlePlan(s.closerProfile, s.productContent, s.activeProductName, s.priorMemoryMd, clientName, s.dealCompany, s.callGoal);
+          battlePlan = bp.text;
+          logUsage(jwt, user.id, s.activeDealId, 'battle_plan', PREP_MODEL, bp.usage);
         } catch (e) {
           console.error('[battle-plan]', e.message);   // non-fatal — the call still starts without it
         }
@@ -1067,21 +1218,47 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, { ok: true, brief, battlePlan, clientName, productName: s.activeProductName, goal: s.callGoal, goalLabel: s.callGoal ? GOALS[s.callGoal].label : '' });
       }
       if (urlPath === '/api/call/end' && req.method === 'POST') {
-        const { outcome, savedDeal, savedDealNote } = await readBody(req);
+        const { outcome, savedDeal, savedDealNote, outcomeAmount, outcomeReason } = await readBody(req);
         const duration = Math.round((Date.now() - (s.callStartAt || Date.now())) / 1000);
         if (!s.activeDealId) return sendJson(res, { ok: true, saved: false, msg: 'no client selected — nothing saved to memory' });
         if (s.turns.length < 2) return sendJson(res, { ok: true, saved: false, msg: 'call too short to analyze' });
-        const memoryMd = await extractClientBrain(s.priorMemoryMd, s.turns, s.activeProductName, s.dealName, s.dealCompany);
-        await sbRest('deals?id=eq.' + s.activeDealId, jwt, { method: 'PATCH', body: { memory_md: memoryMd } });
+        const cleanOutcome = outcome && ['closed', 'lost', 'follow_up'].includes(outcome) ? outcome : 'unknown';
+
+        // Client Brain + the closer's own delivery review are independent reads of the same
+        // transcript — run them together instead of stacking their latency serially
+        const [brainResult, reviewResult] = await Promise.all([
+          extractClientBrain(s.priorMemoryMd, s.turns, s.activeProductName, s.dealName, s.dealCompany),
+          reviewCall(s.turns, s.activeProductName, s.callGoal).catch(e => { console.error('[review]', e.message); return null; })
+        ]);
+        const memoryMd = brainResult.text;
+        logUsage(jwt, user.id, s.activeDealId, 'client_brain', ANALYSIS_MODEL, brainResult.usage);
+        if (reviewResult) logUsage(jwt, user.id, s.activeDealId, 'review', ANALYSIS_MODEL, reviewResult.usage);
+
+        // the deal-level PATCH: memory always updates; won/lost also syncs deal status +
+        // amount/reason so the quick post-call tap keeps the client list in sync automatically
+        const dealPatch = { memory_md: memoryMd };
+        if (cleanOutcome === 'closed') {
+          dealPatch.status = 'won';
+          if (typeof outcomeAmount === 'number' && outcomeAmount >= 0) dealPatch.close_amount = outcomeAmount;
+          dealPatch.closed_at = new Date().toISOString();
+        } else if (cleanOutcome === 'lost') {
+          dealPatch.status = 'lost';
+          if (outcomeReason) dealPatch.close_reason = String(outcomeReason).slice(0, 200);
+          dealPatch.closed_at = new Date().toISOString();
+        }
+        await sbRest('deals?id=eq.' + s.activeDealId, jwt, { method: 'PATCH', body: dealPatch });
+
         const callRow = (await sbRest('calls', jwt, {
           method: 'POST',
           body: {
             user_id: user.id, deal_id: s.activeDealId, transcript: s.turns, cards: s.cards,
             summary: snapshotOf(memoryMd), product_name: s.activeProductName, duration_sec: duration,
             goal: s.callGoal || '',
-            outcome: outcome && ['closed', 'lost', 'follow_up'].includes(outcome) ? outcome : 'unknown',
+            outcome: cleanOutcome,
             saved_deal: typeof savedDeal === 'boolean' ? savedDeal : null,
-            saved_deal_note: savedDealNote || ''
+            saved_deal_note: savedDealNote || '',
+            review_score: reviewResult ? reviewResult.score : null,
+            review_notes: reviewResult ? reviewResult.text : ''
           }
         }))[0];
         s.priorMemoryMd = memoryMd;
@@ -1098,8 +1275,11 @@ const server = http.createServer(async (req, res) => {
 
       // ---- personal metrics (the closer's own PMF numbers) ----
       if (urlPath === '/api/metrics' && req.method === 'GET') {
-        const calls = await sbRest('calls?select=id,created_at,cards,outcome,saved_deal', jwt);
-        let used = 0, rated = 0, closed = 0, decided = 0, savedDeals = 0;
+        const [calls, wonDeals] = await Promise.all([
+          sbRest('calls?select=id,created_at,cards,outcome,saved_deal,transcript', jwt),
+          sbRest('deals?select=close_amount&status=eq.won', jwt),
+        ]);
+        let used = 0, rated = 0, closed = 0, decided = 0, savedDeals = 0, meWords = 0, prospectWords = 0;
         const byDay = {};
         for (const c of calls) {
           for (const card of (c.cards || [])) {
@@ -1108,6 +1288,10 @@ const server = http.createServer(async (req, res) => {
           }
           if (c.outcome && c.outcome !== 'unknown') { decided++; if (c.outcome === 'closed') closed++; }
           if (c.saved_deal === true) savedDeals++;
+          for (const t of (c.transcript || [])) {
+            const n = (t.text || '').trim().split(/\s+/).filter(Boolean).length;
+            if (t.ch === 'me') meWords += n; else prospectWords += n;
+          }
           const day = (c.created_at || '').slice(0, 10);
           if (day) byDay[day] = (byDay[day] || 0) + 1;
         }
@@ -1116,6 +1300,8 @@ const server = http.createServer(async (req, res) => {
           const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
           last14.push({ day: d, calls: byDay[d] || 0 });
         }
+        const totalWords = meWords + prospectWords;
+        const revenue = wonDeals.reduce((sum, d) => sum + (Number(d.close_amount) || 0), 0);
         return sendJson(res, {
           totalCalls: calls.length,
           lineAcceptancePct: rated ? Math.round((used / rated) * 100) : null,
@@ -1124,6 +1310,45 @@ const server = http.createServer(async (req, res) => {
           closeRatePct: decided ? Math.round((closed / decided) * 100) : null,
           decidedCalls: decided,
           activeDays: Object.keys(byDay).length,
+          last14,
+          // merged from the Stats concept — approximate (word-count proxy, not timed speech)
+          talkRatioPct: totalWords ? Math.round((meWords / totalWords) * 100) : null,
+          revenue,
+          wonDeals: wonDeals.length,
+        });
+      }
+
+      // ---- billing: real token/cost ledger from usage_events ----
+      if (urlPath === '/api/billing' && req.method === 'GET') {
+        const rows = await sbRest('usage_events?select=kind,model,prompt_tokens,completion_tokens,created_at&order=created_at.desc&limit=5000', jwt);
+        let totalCost = 0, totalTokens = 0, unpriced = 0;
+        const byModel = {}, byKind = {}, byDay = {};
+        for (const r of rows) {
+          const tokens = (r.prompt_tokens || 0) + (r.completion_tokens || 0);
+          const cost = costUsd(r.model, r.prompt_tokens || 0, r.completion_tokens || 0);
+          totalTokens += tokens;
+          if (cost == null) unpriced++; else totalCost += cost;
+          const dm = byModel[r.model] || { model: r.model, tokens: 0, cost: 0, unpriced: false };
+          dm.tokens += tokens; dm.cost += cost || 0; if (cost == null) dm.unpriced = true;
+          byModel[r.model] = dm;
+          const dk = byKind[r.kind] || { kind: r.kind, tokens: 0, cost: 0 };
+          dk.tokens += tokens; dk.cost += cost || 0;
+          byKind[r.kind] = dk;
+          const day = (r.created_at || '').slice(0, 10);
+          if (day) byDay[day] = (byDay[day] || 0) + (cost || 0);
+        }
+        const last14 = [];
+        for (let i = 13; i >= 0; i--) {
+          const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+          last14.push({ day: d, cost: Math.round((byDay[d] || 0) * 10000) / 10000 });
+        }
+        return sendJson(res, {
+          totalCost: Math.round(totalCost * 100) / 100,
+          totalTokens, events: rows.length, unpricedEvents: unpriced,
+          // 4dp not 2dp: at low volume a single model's slice is routinely sub-cent —
+          // rounding to $0.00 would look like a bug ("clearly has tokens, shows $0")
+          byModel: Object.values(byModel).map(m => ({ ...m, cost: Math.round(m.cost * 10000) / 10000 })),
+          byKind: Object.values(byKind).map(k => ({ ...k, cost: Math.round(k.cost * 10000) / 10000 })),
           last14,
         });
       }

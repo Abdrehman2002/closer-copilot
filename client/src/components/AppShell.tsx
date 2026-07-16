@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { sb } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
 import { initials } from '@/lib/format'
-import { House, Users, Phone, Layers, Plus, LogOut, Menu, X, BarChart3, Settings as SettingsIcon } from 'lucide-react'
+import { House, Users, Phone, Layers, Plus, LogOut, Menu, X, BarChart3, Settings as SettingsIcon, Receipt, BookOpen } from 'lucide-react'
 
 const groups = [
   {
@@ -14,12 +15,14 @@ const groups = [
       { to: '/clients', label: 'Clients', icon: Users, end: false },
       { to: '/calls', label: 'Calls', icon: Phone, end: false },
       { to: '/metrics', label: 'Metrics', icon: BarChart3, end: false },
+      { to: '/billing', label: 'Billing', icon: Receipt, end: false },
     ],
   },
   {
     label: 'Library',
     items: [
       { to: '/playbooks', label: 'Playbooks', icon: Layers, end: false },
+      { to: '/knowledge', label: 'Knowledge', icon: BookOpen, end: false },
       { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false },
     ],
   },
@@ -30,7 +33,9 @@ const titleFor = (path: string) => {
   if (path.startsWith('/clients')) return 'Clients'
   if (path.startsWith('/calls')) return 'Calls'
   if (path.startsWith('/metrics')) return 'Metrics'
+  if (path.startsWith('/billing')) return 'Billing'
   if (path.startsWith('/playbooks')) return 'Playbooks'
+  if (path.startsWith('/knowledge')) return 'Knowledge'
   if (path.startsWith('/settings')) return 'Settings'
   if (path.startsWith('/new')) return 'New Call'
   if (path.startsWith('/live')) return 'Live Call'
@@ -136,6 +141,7 @@ export default function AppShell({ email }: { email: string }) {
             <Menu className="h-5 w-5" />
           </button>
           <h1 className="text-sm font-semibold">{titleFor(pathname)}</h1>
+          <div className="ml-auto"><ThemeToggle compact /></div>
         </header>
         <main className="flex-1 overflow-y-auto">
           <Outlet />

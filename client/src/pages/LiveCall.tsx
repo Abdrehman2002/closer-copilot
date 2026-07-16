@@ -17,7 +17,7 @@ export default function LiveCall() {
     if (!state.active && !state.awaitingOutcome && state.transcript.length === 0) navigate('/new')
   }, [])
 
-  const finish = async (meta: { outcome?: Outcome; savedDeal?: boolean; savedDealNote?: string }) => {
+  const finish = async (meta: { outcome?: Outcome; savedDeal?: boolean; savedDealNote?: string; outcomeAmount?: number; outcomeReason?: string }) => {
     setFinishing(true)
     const dealId = await live.finish(meta)
     navigate(dealId ? `/clients/${dealId}` : '/')
