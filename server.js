@@ -379,10 +379,6 @@ function buildSystemPrompt(s) {
 const CARD_COOLDOWN_MS = 2500;
 const REP_QUIET_MS = 650;   // rep considered "still delivering" if they spoke within this window
 const MAX_HOLD_MS = 6000;   // never hold a card longer than this
-// after the prospect's endpoint (speech_final), wait this long before firing the considered
-// line — if they start talking again in that window it gets cancelled, so the AI line only
-// lands once they've genuinely stopped. The instant lane covers the gap so it still feels live.
-const FINAL_SETTLE_MS = 250;
 
 // true if the closer ("ME") is mid-delivery right now — don't drop a new card on top of them
 function repTalking(s) { return Date.now() - s.meLastAt < REP_QUIET_MS; }
@@ -1434,11 +1430,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ---- Deepgram relay (one live socket per browser audio socket) ----
-// endpointing=500: Deepgram waits ~500ms of silence before declaring the utterance done
-// (speech_final). Bumped from 300 so a natural mid-thought breath isn't mistaken for "they
-// stopped" — the #1 cause of the coach firing over the prospect. Interims still flow the whole
-// time, so the instant lane stays live regardless of this.
-const DG_URL = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=500';
+const DG_URL = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=300';
 
 function relayAudio(clientWs, ch, s) {
   ensureCallLog(s);
@@ -1467,23 +1459,16 @@ function relayAudio(clientWs, ch, s) {
     // note when the closer is speaking (interim OR final) so the coach can hold cards until they pause
     if (ch === 'me') s.meLastAt = Date.now();
 
-    if (ch === 'prospect') {
-      // INSTANT lane: live deterministic read of the moment, updated as they talk
-      emitSignal(s, text);
-      // any new prospect words that AREN'T an endpoint mean they're still going —
-      // cancel a pending "final" coach so the line never drops mid-sentence
-      if (!d.speech_final) clearTimeout(s.coachTimer);
-    }
+    // INSTANT lane: live deterministic read of the moment, updated as the prospect talks
+    if (ch === 'prospect') emitSignal(s, text);
 
     if (d.is_final) {
       addTurn(s, ch, text);
       broadcast(s, { type: 'transcript', ch, text });
-      // FINAL lane: fire the considered line ONLY on a real endpoint (speech_final), then a
-      // short settle window. Mid-utterance is_final segments no longer trigger the coach —
-      // that 400ms path was the main cause of lines landing while the prospect was still talking.
-      if (ch === 'prospect' && d.speech_final) {
+      if (ch === 'prospect') {
         clearTimeout(s.coachTimer);
-        s.coachTimer = setTimeout(() => coach(s), FINAL_SETTLE_MS);
+        // prospect actually stopped (speech_final) → coach immediately; mid-stream → short debounce
+        s.coachTimer = setTimeout(() => coach(s), d.speech_final ? 0 : 400);
       }
     } else {
       broadcast(s, { type: 'interim', ch, text });
