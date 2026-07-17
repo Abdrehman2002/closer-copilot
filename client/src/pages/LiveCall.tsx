@@ -67,14 +67,19 @@ export default function LiveCall() {
       )}
 
       <div className="flex min-h-0 flex-1 gap-4">
-        <div className="flex min-w-0 flex-[1.3] flex-col justify-end gap-3 overflow-y-auto pb-1">
-          {state.cards.length === 0 && !state.streaming && (
-            <div className="m-auto max-w-xs text-center text-sm text-muted-foreground">Coached lines appear here the moment they matter. Small talk stays silent.</div>
-          )}
-          {state.cards.slice(-4).map((c, i, arr) => (
-            <CoachingCard key={c.id ?? i} {...c} onRate={live.rateCard} className={i < arr.length - 1 || state.streaming ? 'opacity-50' : ''} />
-          ))}
-          {state.streaming && <CoachingCard {...state.streaming} streaming />}
+        <div className="flex min-w-0 flex-[1.3] flex-col gap-2 overflow-hidden">
+          {/* INSTANT lane — live read of the moment while the prospect is still talking */}
+          <InstantLane signal={state.signal} active={state.active} />
+          {/* FINAL lane — the considered line, lands once the prospect has actually stopped */}
+          <div className="flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-y-auto pb-1">
+            {state.cards.length === 0 && !state.streaming && (
+              <div className="m-auto max-w-xs text-center text-sm text-muted-foreground">Your line appears here once the prospect finishes. Small talk stays silent.</div>
+            )}
+            {state.cards.slice(-4).map((c, i, arr) => (
+              <CoachingCard key={c.id ?? i} {...c} onRate={live.rateCard} className={i < arr.length - 1 || state.streaming ? 'opacity-50' : ''} />
+            ))}
+            {state.streaming && <CoachingCard {...state.streaming} streaming />}
+          </div>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
@@ -91,6 +96,34 @@ export default function LiveCall() {
           <div className="border-t border-border px-4 py-2 text-[11px] uppercase tracking-wide text-muted-foreground">{state.status || (state.active ? 'live' : 'call ended')}</div>
         </div>
       </div>
+    </div>
+  )
+}
+
+const TAG_STYLE: Record<string, string> = {
+  PRICE: 'bg-primary text-primary-foreground',
+  BUYING: 'bg-success text-white',
+  OBJECTION: 'bg-amber-600 text-white',
+  STALL: 'bg-amber-600 text-white',
+  COMPETITOR: 'bg-violet-600 text-white',
+}
+
+function InstantLane({ signal, active }: { signal: { tag: string; hint: string } | null; active: boolean }) {
+  return (
+    <div className="shrink-0">
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+        <span className={`h-1.5 w-1.5 rounded-full ${signal ? 'animate-pulse bg-primary' : 'bg-muted-foreground/40'}`} /> Live read
+      </div>
+      {signal ? (
+        <div className="flex items-start gap-2 rounded-lg border border-primary/25 bg-primary/[0.04] px-3 py-2">
+          <span className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${TAG_STYLE[signal.tag] || 'bg-secondary text-foreground'}`}>{signal.tag}</span>
+          <span className="text-[13px] leading-snug text-foreground/85">{signal.hint}</span>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-border px-3 py-2 text-[12px] text-muted-foreground">
+          {active ? 'Listening for the moment…' : 'A live read appears here as the prospect talks.'}
+        </div>
+      )}
     </div>
   )
 }

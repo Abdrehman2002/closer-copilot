@@ -166,6 +166,7 @@ function getSession(userId) {
       closerProfile: null, callGoal: '', kbDocs: [],
       lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
+      lastSignalTag: null,
       simIdx: 0
     };
     sessions.set(userId, s);
@@ -285,16 +286,51 @@ function closerProfileBlock(profile) {
 
 // lightweight, deterministic read on the moment from the prospect's last line —
 // no extra API call, near-zero latency cost, sharpens which MOMENT->MOVE the coach reaches for
+// One shared moment classifier powers BOTH the deterministic prompt "trigger" read (for the
+// AI) AND the instant overlay lane (the live "what's happening" signal shown to the closer
+// while the prospect is still talking, before the considered AI line lands). Order matters —
+// first match wins, same precedence as before (price → competitor → stall → buying → objection).
+const MOMENTS = [
+  { re: /\$|\bprice\b|\bcost\b|expensive|afford|budget|how much/, tag: 'PRICE',
+    read: 'PRICE moment — price was just said or asked about.',
+    hint: 'Price is live — anchor the value before you defend the number.' },
+  { re: /already (have|use|got)|competitor|cheaper|other (company|option|guy)/, tag: 'COMPETITOR',
+    read: 'COMPETITOR mention — comparing to another option.',
+    hint: 'They\'re comparing — get specific on the one thing only you do.' },
+  { re: /not sure|don'?t know|maybe|think (it |about )?over|talk to|run it by|call.*back|not (a )?good time|another time/, tag: 'STALL',
+    read: 'STALL — vague deferral, needs the real objection isolated.',
+    hint: 'That\'s a stall — isolate the real objection, don\'t accept the deferral.' },
+  { re: /how (do|does|would|soon)|when can|what.*next|sounds good|i'?m in|let'?s do|get started|sign (me )?up/, tag: 'BUYING',
+    read: 'BUYING SIGNAL — lean into the close.',
+    hint: 'Buying signal — stop selling and ask for the next step.' },
+  { re: /no|not interested|worried|concern|but |however|doubt|robot|scam|trust/, tag: 'OBJECTION',
+    read: 'OBJECTION — a concern was just raised.',
+    hint: 'Concern raised — acknowledge it first, then reframe.' },
+];
+
+function classifyMoment(text) {
+  const t = String(text || '').toLowerCase();
+  if (!t) return null;
+  for (const m of MOMENTS) if (m.re.test(t)) return m;
+  return null;
+}
+
 function detectTrigger(turns) {
   const lastProspect = [...turns].reverse().find(t => t.ch === 'prospect');
   if (!lastProspect) return 'Early in the call — no prospect line yet.';
-  const t = lastProspect.text.toLowerCase();
-  if (/\$|\bprice\b|\bcost\b|expensive|afford|budget|how much/.test(t)) return 'PRICE moment — price was just said or asked about.';
-  if (/already (have|use|got)|competitor|cheaper|other (company|option|guy)/.test(t)) return 'COMPETITOR mention — comparing to another option.';
-  if (/not sure|don'?t know|maybe|think (it |about )?over|talk to|run it by|call.*back|not (a )?good time|another time/.test(t)) return 'STALL — vague deferral, needs the real objection isolated.';
-  if (/how (do|does|would|soon)|when can|what.*next|sounds good|i'?m in|let'?s do|get started|sign (me )?up/.test(t)) return 'BUYING SIGNAL — lean into the close.';
-  if (/no|not interested|worried|concern|but |however|doubt|robot|scam|trust/.test(t)) return 'OBJECTION — a concern was just raised.';
-  return 'Neutral moment — no strong signal, use judgment on whether a line helps.';
+  const m = classifyMoment(lastProspect.text);
+  return m ? m.read : 'Neutral moment — no strong signal, use judgment on whether a line helps.';
+}
+
+// INSTANT lane: broadcast a short live read of the moment as the prospect speaks. Purely
+// deterministic (no LLM) so it's instant and free. Only sent when the read actually changes,
+// so the socket isn't flooded on every interim word.
+function emitSignal(s, text) {
+  const m = classifyMoment(text);
+  const tag = m ? m.tag : null;
+  if (tag === s.lastSignalTag) return;
+  s.lastSignalTag = tag;
+  broadcast(s, { type: 'signal', tag, hint: m ? m.hint : null });
 }
 
 // keyword-match the closer's uploaded knowledge base against the live conversation. Docs are
@@ -343,6 +379,10 @@ function buildSystemPrompt(s) {
 const CARD_COOLDOWN_MS = 2500;
 const REP_QUIET_MS = 650;   // rep considered "still delivering" if they spoke within this window
 const MAX_HOLD_MS = 6000;   // never hold a card longer than this
+// after the prospect's endpoint (speech_final), wait this long before firing the considered
+// line — if they start talking again in that window it gets cancelled, so the AI line only
+// lands once they've genuinely stopped. The instant lane covers the gap so it still feels live.
+const FINAL_SETTLE_MS = 250;
 
 // true if the closer ("ME") is mid-delivery right now — don't drop a new card on top of them
 function repTalking(s) { return Date.now() - s.meLastAt < REP_QUIET_MS; }
@@ -1359,6 +1399,7 @@ const server = http.createServer(async (req, res) => {
         broadcast(s, { type: 'transcript', ch: 'me', text: pair.me });
         addTurn(s, 'prospect', pair.prospect);
         broadcast(s, { type: 'transcript', ch: 'prospect', text: pair.prospect });
+        emitSignal(s, pair.prospect);   // light up the instant lane for the test line too
         s.lastCardAt = 0;
         setTimeout(() => coach(s), 100);
         return sendJson(res, { ok: true });
@@ -1393,7 +1434,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ---- Deepgram relay (one live socket per browser audio socket) ----
-const DG_URL = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=300';
+// endpointing=500: Deepgram waits ~500ms of silence before declaring the utterance done
+// (speech_final). Bumped from 300 so a natural mid-thought breath isn't mistaken for "they
+// stopped" — the #1 cause of the coach firing over the prospect. Interims still flow the whole
+// time, so the instant lane stays live regardless of this.
+const DG_URL = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=500';
 
 function relayAudio(clientWs, ch, s) {
   ensureCallLog(s);
@@ -1421,13 +1466,24 @@ function relayAudio(clientWs, ch, s) {
     if (!text) return;
     // note when the closer is speaking (interim OR final) so the coach can hold cards until they pause
     if (ch === 'me') s.meLastAt = Date.now();
+
+    if (ch === 'prospect') {
+      // INSTANT lane: live deterministic read of the moment, updated as they talk
+      emitSignal(s, text);
+      // any new prospect words that AREN'T an endpoint mean they're still going —
+      // cancel a pending "final" coach so the line never drops mid-sentence
+      if (!d.speech_final) clearTimeout(s.coachTimer);
+    }
+
     if (d.is_final) {
       addTurn(s, ch, text);
       broadcast(s, { type: 'transcript', ch, text });
-      if (ch === 'prospect') {
+      // FINAL lane: fire the considered line ONLY on a real endpoint (speech_final), then a
+      // short settle window. Mid-utterance is_final segments no longer trigger the coach —
+      // that 400ms path was the main cause of lines landing while the prospect was still talking.
+      if (ch === 'prospect' && d.speech_final) {
         clearTimeout(s.coachTimer);
-        // prospect actually stopped (speech_final) → coach immediately; mid-stream → short debounce
-        s.coachTimer = setTimeout(() => coach(s), d.speech_final ? 0 : 400);
+        s.coachTimer = setTimeout(() => coach(s), FINAL_SETTLE_MS);
       }
     } else {
       broadcast(s, { type: 'interim', ch, text });

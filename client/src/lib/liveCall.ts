@@ -17,6 +17,7 @@ type State = {
   transcript: Turn[]
   cards: CardData[]
   streaming: CardData | null
+  signal: { tag: string; hint: string } | null   // instant lane: live read while prospect talks
   interim: string
   awaitingOutcome: boolean   // capture stopped, End Call modal should show
 }
@@ -25,7 +26,7 @@ const state: State = {
   active: false, status: '', srvOn: false,
   dealId: null, productId: null, brief: null, battlePlan: null, clientName: null, productName: null,
   goalLabel: null,
-  transcript: [], cards: [], streaming: null, interim: '', awaitingOutcome: false,
+  transcript: [], cards: [], streaming: null, signal: null, interim: '', awaitingOutcome: false,
 }
 
 const listeners = new Set<() => void>()
@@ -65,6 +66,7 @@ async function connectEvents() {
     if (d.type === 'transcript') pushTurn(d.ch, d.text)
     else if (d.type === 'interim') { state.interim = (d.ch === 'me' ? 'ME: ' : 'PROSPECT: ') + d.text; emit() }
     else if (d.type === 'card-stream') pushCard(d)
+    else if (d.type === 'signal') { state.signal = d.tag ? { tag: d.tag, hint: d.hint } : null; emit(); updatePipSignal() }
     else if (d.type === 'status') { state.status = d.msg; emit() }
   }
 }
@@ -93,7 +95,7 @@ export const liveCall = {
       '/api/call/start', { dealId, productId, goal })
     state.brief = r.brief; state.battlePlan = r.battlePlan; state.clientName = r.clientName; state.productName = r.productName
     state.goalLabel = r.goalLabel || null
-    state.transcript = []; state.cards = []; state.streaming = null; state.interim = ''; state.awaitingOutcome = false
+    state.transcript = []; state.cards = []; state.streaming = null; state.signal = null; state.interim = ''; state.awaitingOutcome = false
     state.dealId = dealId; state.productId = productId
     state.status = 'Allow the mic, then pick your Meet tab with "Also share tab audio"…'; emit()
 
@@ -150,13 +152,36 @@ export const liveCall = {
     if (pipWin) { pipWin.focus(); return }
     const dpip = (window as any).documentPictureInPicture
     if (!dpip) { alert('Overlay needs Chrome 116+.'); return }
-    pipWin = await dpip.requestWindow({ width: 620, height: 210 })
+    pipWin = await dpip.requestWindow({ width: 620, height: 240 })
     const b = pipWin!.document.body
     b.style.cssText = 'margin:0;background:#fff;color:#16181d;font:15px/1.5 Inter,system-ui,sans-serif;overflow:hidden;border-top:3px solid hsl(214 95% 52%)'
-    b.innerHTML = '<div id="pc" style="padding:14px 18px;color:#77839a">Overlay live — the next card appears here, on top of everything.</div>'
+    // two lanes: #ps = instant live read (while the prospect talks), #pc = the considered line
+    b.innerHTML =
+      '<div id="ps" style="display:none;padding:8px 18px;border-bottom:1px solid #eef0f3;background:#fafbfc"></div>' +
+      '<div id="pc" style="padding:14px 18px;color:#77839a">Overlay live — your line appears here, on top of everything.</div>'
     pipWin!.addEventListener('pagehide', () => { pipWin = null })
+    updatePipSignal()
     if (state.streaming || state.cards.length) updatePip((state.streaming || state.cards[state.cards.length - 1]) as any)
   },
+}
+
+const SIGNAL_COLORS: Record<string, string> = {
+  PRICE: 'hsl(214 95% 52%)', BUYING: '#15803d', OBJECTION: '#b45309',
+  STALL: '#b45309', COMPETITOR: '#7c3aed',
+}
+
+function updatePipSignal() {
+  if (!pipWin) return
+  const ps = pipWin.document.getElementById('ps')
+  if (!ps) return
+  const sig = state.signal
+  if (!sig) { ps.style.display = 'none'; ps.innerHTML = ''; return }
+  const color = SIGNAL_COLORS[sig.tag] || '#475569'
+  ps.style.display = 'block'
+  ps.innerHTML =
+    '<span style="display:inline-block;font-size:10px;font-weight:800;letter-spacing:.5px;color:#fff;background:' +
+    color + ';border-radius:5px;padding:2px 8px;margin-right:8px;text-transform:uppercase">' + sig.tag +
+    '</span><span style="font-size:13px;color:#475569">' + sig.hint + '</span>'
 }
 
 function updatePip(c: { tone: string; line: string }) {
