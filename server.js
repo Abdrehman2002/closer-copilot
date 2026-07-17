@@ -166,7 +166,7 @@ function getSession(userId) {
       closerProfile: null, callGoal: '', kbDocs: [],
       lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
-      lastSignalTag: null,
+      lastSignalTag: null, lastProspectFinalAt: 0,
       simIdx: 0
     };
     sessions.set(userId, s);
@@ -303,7 +303,9 @@ const MOMENTS = [
   { re: /how (do|does|would|soon)|when can|what.*next|sounds good|i'?m in|let'?s do|get started|sign (me )?up/, tag: 'BUYING',
     read: 'BUYING SIGNAL — lean into the close.',
     hint: 'Buying signal — stop selling and ask for the next step.' },
-  { re: /no|not interested|worried|concern|but |however|doubt|robot|scam|trust/, tag: 'OBJECTION',
+  // NOTE: no bare "no" here — it fired on "no problem" / "no, sounds great" and mis-tagged
+  // positives. Match explicit objection language instead.
+  { re: /not interested|\bworried\b|\bconcern|\bhowever\b|\bdoubt|\brobot|\bscam\b|don'?t trust|too expensive|too much money|not a fit|not for us|\bhesitant\b|\bskeptic/, tag: 'OBJECTION',
     read: 'OBJECTION — a concern was just raised.',
     hint: 'Concern raised — acknowledge it first, then reframe.' },
 ];
@@ -391,8 +393,10 @@ function showCard(s, card, since) {
     const id = s.cards.length;   // stable index into s.cards — the client rates a card by this id
     s.cards.push({ id, at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique, confidence: card.confidence || 'high', used: null });
     broadcast(s, { ...card, id });
-    logEvent(s, { type: 'card', id, tone: card.tone, line: card.line, why: card.why, technique: card.technique });
-    console.log('[coach]', s.userId.slice(0, 8), 'FIRE:', card.line);
+    // measured latency: prospect stopped talking → card on screen. Real number, not a vibe.
+    const latencyMs = s.lastProspectFinalAt ? Date.now() - s.lastProspectFinalAt : null;
+    logEvent(s, { type: 'card', id, tone: card.tone, line: card.line, why: card.why, technique: card.technique, latencyMs });
+    console.log('[coach]', s.userId.slice(0, 8), latencyMs != null ? '(' + latencyMs + 'ms)' : '', 'FIRE:', card.line);
     return;
   }
   s.pendingCard = { card, since };
@@ -481,16 +485,23 @@ function numbersIn(text) {
 
 const MONEY_CONTEXT = /(\$|dollar|buck|grand|\bk\b|a month|per month|monthly|a year|per year|set ?up|deposit|percent|%|-day\b|day guarantee|discount|refund|price|cost|fee|charge)/i;
 
-// numeric values in the line that appear in a money/claim context and therefore must be sourced
+// every number-word run used above, for matching whole number EXPRESSIONS (not partials)
+const NUM_WORD_ALT = 'seventeen|thirteen|fourteen|eighteen|nineteen|sixteen|fifteen|eleven|twelve|hundred|thousand|seventy|eighty|ninety|twenty|thirty|forty|fifty|sixty|three|seven|eight|four|five|nine|zero|one|two|six|ten|and';
+
+// numeric values in the line that appear in a money/claim context and therefore must be sourced.
+// Evaluate each CONTIGUOUS number expression once (like numbersIn does on the sources) — a
+// sliding token window used to bisect "fourteen hundred" into a spurious 14, which the source
+// side never produces, causing a valid sourced price to be falsely withheld.
 function pricedNumbers(line) {
   const out = new Set();
   const t = String(line || '');
-  // scan windows: any number expression whose ±4-word neighborhood mentions money
-  const tokens = t.split(/\s+/);
-  for (let i = 0; i < tokens.length; i++) {
-    const windowText = tokens.slice(Math.max(0, i - 4), i + 5).join(' ');
-    if (!MONEY_CONTEXT.test(windowText)) continue;
-    for (const v of numbersIn(tokens.slice(Math.max(0, i - 3), i + 4).join(' '))) out.add(v);
+  const expr = new RegExp('\\d[\\d,]*(?:\\.\\d+)?|\\b(?:(?:' + NUM_WORD_ALT + ')[\\s-]+)*(?:' + NUM_WORD_ALT + ')\\b', 'gi');
+  for (const m of t.matchAll(expr)) {
+    const start = m.index, end = start + m[0].length;
+    const before = t.slice(0, start).split(/\s+/).slice(-4).join(' ');
+    const after = t.slice(end).split(/\s+/).slice(0, 4).join(' ');
+    if (!MONEY_CONTEXT.test(before + ' ' + m[0] + ' ' + after)) continue;
+    for (const v of numbersIn(m[0])) out.add(v);   // full expression → no partial readings
   }
   return out;
 }
@@ -509,7 +520,10 @@ function validateLine(line, sources, neverSay) {
   if (priced.size) {
     const allowed = numbersIn(sources);
     for (const v of priced) {
-      if (v < 13 || ALWAYS_ALLOWED.has(v)) continue;    // small counts & idioms are fine
+      // Only 0/1 and known idioms (24/7, 100%) skip validation. Previously anything under
+      // 13 was waved through, which let a hallucinated small money figure — "$5/mo",
+      // "ten percent off" — slip out. In a money context those must be sourced too.
+      if (v < 2 || ALWAYS_ALLOWED.has(v)) continue;
       if (!allowed.has(v)) return { ok: false, issue: 'states a number not in the playbook/history: ' + v };
     }
   }
@@ -1430,60 +1444,92 @@ const server = http.createServer(async (req, res) => {
 });
 
 // ---- Deepgram relay (one live socket per browser audio socket) ----
-const DG_URL = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=300';
+// Build the live-STT URL per call so we can pass keyterms — the prospect/company/product
+// names — which nova-3 boosts so proper nouns transcribe correctly instead of as garble
+// (a wrong name in the transcript becomes a wrong name in the whispered line).
+function dgUrl(s) {
+  let url = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=300';
+  const seen = new Set();
+  for (const raw of [s.dealName, s.dealCompany, s.activeProductName]) {
+    const t = String(raw || '').trim();
+    if (t.length > 1 && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); url += '&keyterm=' + encodeURIComponent(t); }
+  }
+  return url;
+}
 
 function relayAudio(clientWs, ch, s) {
   ensureCallLog(s);
   const pending = [];
-  let dgOpen = false;
-  const dg = new WebSocket(DG_URL, ['token', DG_KEY]);
-  dg.binaryType = 'arraybuffer';
+  const MAX_PENDING = 40;   // ~10s of 250ms chunks — cap so a long outage stays near-live, not a stale backlog
+  let dg = null, dgOpen = false, intentional = false, retries = 0, reconnectTimer = null;
+
+  const bufferChunk = (data) => { pending.push(data); if (pending.length > MAX_PENDING) pending.splice(0, pending.length - MAX_PENDING); };
+
+  function connectDg() {
+    dg = new WebSocket(dgUrl(s), ['token', DG_KEY]);
+    dg.binaryType = 'arraybuffer';
+
+    dg.onopen = () => {
+      dgOpen = true; retries = 0;
+      for (const chunk of pending) { try { dg.send(chunk); } catch {} }
+      pending.length = 0;
+      broadcast(s, { type: 'status', msg: ch + ' channel listening' });
+    };
+
+    dg.onmessage = (ev) => {
+      let d; try { d = JSON.parse(ev.data.toString()); } catch { return; }
+      const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0];
+      if (!alt) return;
+      const text = (alt.transcript || '').trim();
+      if (!text) return;
+      // note when the closer is speaking (interim OR final) so the coach can hold cards until they pause
+      if (ch === 'me') s.meLastAt = Date.now();
+
+      // INSTANT lane: live deterministic read of the moment, updated as the prospect talks
+      if (ch === 'prospect') emitSignal(s, text);
+
+      if (d.is_final) {
+        addTurn(s, ch, text);
+        broadcast(s, { type: 'transcript', ch, text });
+        if (ch === 'prospect') {
+          s.lastProspectFinalAt = Date.now();   // start of the "prospect stopped → card shown" latency clock
+          clearTimeout(s.coachTimer);
+          // prospect actually stopped (speech_final) → coach immediately; mid-stream → short debounce
+          s.coachTimer = setTimeout(() => coach(s), d.speech_final ? 0 : 400);
+        }
+      } else {
+        broadcast(s, { type: 'interim', ch, text });
+      }
+    };
+
+    // Transparent reconnect: a dropped Deepgram socket must NOT silently kill coaching
+    // mid-deal. Keep buffering audio, reopen with backoff, and never tell the closer to
+    // restart the call. onerror just lets onclose drive the reconnect.
+    dg.onerror = () => {};
+    dg.onclose = () => {
+      dgOpen = false;
+      if (intentional) return;
+      retries++;
+      broadcast(s, { type: 'status', msg: ch + ' reconnecting…' });
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectDg, Math.min(3000, 400 * retries));
+    };
+  }
 
   const keepAlive = setInterval(() => {
     if (dgOpen) { try { dg.send(JSON.stringify({ type: 'KeepAlive' })); } catch {} }
   }, 8000);
 
-  dg.onopen = () => {
-    dgOpen = true;
-    for (const chunk of pending) dg.send(chunk);
-    pending.length = 0;
-    broadcast(s, { type: 'status', msg: ch + ' channel listening' });
-  };
-
-  dg.onmessage = (ev) => {
-    let d; try { d = JSON.parse(ev.data.toString()); } catch { return; }
-    const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0];
-    if (!alt) return;
-    const text = (alt.transcript || '').trim();
-    if (!text) return;
-    // note when the closer is speaking (interim OR final) so the coach can hold cards until they pause
-    if (ch === 'me') s.meLastAt = Date.now();
-
-    // INSTANT lane: live deterministic read of the moment, updated as the prospect talks
-    if (ch === 'prospect') emitSignal(s, text);
-
-    if (d.is_final) {
-      addTurn(s, ch, text);
-      broadcast(s, { type: 'transcript', ch, text });
-      if (ch === 'prospect') {
-        clearTimeout(s.coachTimer);
-        // prospect actually stopped (speech_final) → coach immediately; mid-stream → short debounce
-        s.coachTimer = setTimeout(() => coach(s), d.speech_final ? 0 : 400);
-      }
-    } else {
-      broadcast(s, { type: 'interim', ch, text });
-    }
-  };
-
-  dg.onerror = () => broadcast(s, { type: 'status', msg: ch + ' transcription error — reconnect by re-starting the call' });
-  dg.onclose = () => { dgOpen = false; clearInterval(keepAlive); };
+  connectDg();
 
   clientWs.on('message', (data) => {
-    if (dgOpen) dg.send(data);
-    else pending.push(data);
+    if (dgOpen) { try { dg.send(data); } catch { bufferChunk(data); } }
+    else bufferChunk(data);
   });
   clientWs.on('close', () => {
+    intentional = true;
     clearInterval(keepAlive);
+    clearTimeout(reconnectTimer);
     try { if (dgOpen) dg.send(JSON.stringify({ type: 'CloseStream' })); } catch {}
     setTimeout(() => { try { dg.close(); } catch {} }, 1500);
   });

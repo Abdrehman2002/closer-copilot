@@ -72,11 +72,19 @@ async function connectEvents() {
 }
 
 function pipe(stream: MediaStream, ch: 'me' | 'prospect', t: string) {
-  const ws = new WebSocket(wsUrl('/audio?ch=' + ch + '&t=' + encodeURIComponent(t)))
+  let ws: WebSocket
   const rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 64000 })
-  rec.ondataavailable = (e) => { if (e.data.size && ws.readyState === 1) e.data.arrayBuffer().then((b) => ws.send(b)) }
-  ws.onopen = () => rec.start(250)
-  socks.push(ws); recs.push(rec)
+  rec.ondataavailable = (e) => { if (e.data.size && ws && ws.readyState === 1) e.data.arrayBuffer().then((b) => ws.send(b)) }
+  // Auto-reconnect: if the audio socket drops mid-call (server redeploy, network blip), the
+  // MediaRecorder keeps running but sends would silently fail — reopen and keep streaming.
+  const connect = () => {
+    ws = new WebSocket(wsUrl('/audio?ch=' + ch + '&t=' + encodeURIComponent(t)))
+    ws.onopen = () => { if (rec.state === 'inactive') rec.start(250) }
+    ws.onclose = () => { if (state.active) setTimeout(connect, 800) }
+    socks.push(ws)
+  }
+  connect()
+  recs.push(rec)
 }
 
 function stopMedia() {
