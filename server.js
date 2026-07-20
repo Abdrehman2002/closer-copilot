@@ -745,6 +745,32 @@ function dealMove(d, now) {
   return { id: d.id, name: d.name, company: d.company, type, action, days, howToClose: b.howToClose, nextStep: b.nextStep, score: base + Math.min(days || 0, 30) };
 }
 
+// Deterministic post-call delivery metrics computed straight from the stored transcript —
+// no LLM, no extra columns, coaching the CLOSER's own habits (not manager surveillance).
+function deliveryStats(turns) {
+  const t = Array.isArray(turns) ? turns : [];
+  const wc = (s) => (String(s || '').trim().match(/\S+/g) || []).length;
+  const FILLER = /\b(?:u+m+|u+h+|e+r+|like|you know|sort of|kind of|kinda|basically|actually|literally|i mean|i guess)\b/gi;
+  let meWords = 0, prospectWords = 0, questions = 0, fillers = 0, run = 0, longestMonologue = 0;
+  for (const turn of t) {
+    const w = wc(turn.text);
+    if (turn.ch === 'me') {
+      meWords += w;
+      questions += (String(turn.text || '').match(/\?/g) || []).length;
+      fillers += (String(turn.text || '').match(FILLER) || []).length;
+      run += w; if (run > longestMonologue) longestMonologue = run;   // uninterrupted stretch you talked
+    } else {
+      prospectWords += w;
+      run = 0;
+    }
+  }
+  const total = meWords + prospectWords;
+  return {
+    talkRatioPct: total ? Math.round((meWords / total) * 100) : null,
+    questions, fillers, longestMonologue, meWords, prospectWords,
+  };
+}
+
 // pull objection -> line cues out of a compiled playbook's "Objection playbook" section
 function parseCues(content) {
   const block = sectionOf(content, 'Objection playbook');
@@ -1149,7 +1175,9 @@ const server = http.createServer(async (req, res) => {
       }
       if (seg[0] === 'api' && seg[1] === 'calls' && seg[2] && req.method === 'GET') {
         const rows = await sbRest('calls?id=eq.' + seg[2] + '&select=*,deals(name,company)', jwt);
-        return sendJson(res, { call: rows[0] || null });
+        const call = rows[0] || null;
+        if (call) call.delivery = deliveryStats(call.transcript);
+        return sendJson(res, { call });
       }
 
       // ---- dashboard summary ----

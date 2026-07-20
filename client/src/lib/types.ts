@@ -40,7 +40,17 @@ export interface CallDetail {
   saved_deal_note?: string
   review_score?: number | null
   review_notes?: string
+  delivery?: Delivery
   deals?: { name: string; company: string } | null
+}
+
+export interface Delivery {
+  talkRatioPct: number | null
+  questions: number
+  fillers: number
+  longestMonologue: number
+  meWords: number
+  prospectWords: number
 }
 
 export interface ClientDetail {

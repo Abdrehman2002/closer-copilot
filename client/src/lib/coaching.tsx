@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { ThumbsUp, ThumbsDown } from 'lucide-react'
+import { ThumbsUp, ThumbsDown, AudioLines } from 'lucide-react'
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
@@ -25,12 +25,19 @@ export function CoachingCard({
   const silent = /silent/i.test(tone)
   return (
     <div className={cn('rounded-xl border border-border bg-card p-4 shadow-sm', className)}>
-      <div className="mb-2 flex items-start justify-between gap-2">
+      <div className="mb-2.5 flex items-start justify-between gap-2">
+        {/* Tone leads the card: you read HOW to say it before the words. */}
         <span className="flex flex-wrap items-center gap-1.5">
           <span className={cn(
-            'inline-block rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white',
-            silent ? 'bg-amber-600' : 'bg-primary'
-          )}>{tone || '…'}</span>
+            'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5',
+            silent ? 'bg-amber-600/12' : 'bg-primary/12'
+          )}>
+            <AudioLines className={cn('h-4 w-4 shrink-0', silent ? 'text-amber-700' : 'text-primary')} />
+            <span className={cn(
+              'text-[13.5px] font-extrabold uppercase tracking-[0.08em]',
+              silent ? 'text-amber-700' : 'text-primary'
+            )}>{tone || '…'}</span>
+          </span>
           {confidence === 'low' && !streaming && (
             <span className="rounded-md bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
               title="The coach is improvising beyond the playbook here — trust your own read">

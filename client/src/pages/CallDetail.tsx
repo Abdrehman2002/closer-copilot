@@ -6,7 +6,8 @@ import { fmtDate, fmtDur } from '@/lib/format'
 import { CoachingCard } from '@/lib/coaching'
 import { DetailSkeleton } from '@/components/Skeleton'
 import { Brain } from '@/components/Brain'
-import { ArrowLeft, Sparkles } from 'lucide-react'
+import type { Delivery } from '@/lib/types'
+import { ArrowLeft, Sparkles, Mic, HelpCircle, AlignLeft, Eraser } from 'lucide-react'
 
 export default function CallDetail() {
   const { id } = useParams()
@@ -47,6 +48,10 @@ export default function CallDetail() {
         </div>
       )}
 
+      {call.delivery && (call.delivery.meWords > 0 || call.delivery.prospectWords > 0) && (
+        <DeliveryPanel d={call.delivery} />
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <section>
           <h3 className="mb-3 text-sm font-semibold">Transcript</h3>
@@ -67,6 +72,40 @@ export default function CallDetail() {
             {!(call.cards || []).length && <div className="text-sm text-muted-foreground">No cards fired.</div>}
           </div>
         </section>
+      </div>
+    </div>
+  )
+}
+
+function DeliveryPanel({ d }: { d: Delivery }) {
+  // honest coaching cues from the numbers (tone = 'ok' | 'warn')
+  const ratio = d.talkRatioPct
+  const ratioTone = ratio == null ? 'ok' : ratio > 65 ? 'warn' : 'ok'
+  const monoTone = d.longestMonologue > 120 ? 'warn' : 'ok'
+  const fillerTone = d.fillers >= 8 ? 'warn' : 'ok'
+  const tiles = [
+    { icon: Mic, label: 'Talk ratio', value: ratio == null ? '—' : `${ratio}%`,
+      sub: ratio == null ? 'your share of words' : ratio > 65 ? 'you talked more than they did — let them talk' : 'your share of words spoken', tone: ratioTone },
+    { icon: HelpCircle, label: 'Questions you asked', value: String(d.questions),
+      sub: d.questions >= 3 ? 'good discovery' : 'ask more to uncover pain', tone: 'ok' },
+    { icon: AlignLeft, label: 'Longest monologue', value: `${d.longestMonologue}w`,
+      sub: d.longestMonologue > 120 ? 'a long stretch — check in sooner' : 'your longest uninterrupted run', tone: monoTone },
+    { icon: Eraser, label: 'Filler words', value: String(d.fillers),
+      sub: d.fillers >= 8 ? 'trim the “um / like / you know”' : 'um, like, you know…', tone: fillerTone },
+  ]
+  return (
+    <div className="mb-6">
+      <div className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">Your delivery</div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {tiles.map((t) => (
+          <div key={t.label} className="rounded-xl border border-border bg-card p-3.5">
+            <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+              <t.icon className="h-3.5 w-3.5" /> {t.label}
+            </div>
+            <div className={`text-2xl font-bold tracking-tight ${t.tone === 'warn' ? 'text-amber-600' : 'text-foreground'}`}>{t.value}</div>
+            <div className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground">{t.sub}</div>
+          </div>
+        ))}
       </div>
     </div>
   )
