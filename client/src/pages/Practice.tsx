@@ -4,7 +4,7 @@ import { api, token } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { CoachingCard } from '@/lib/coaching'
 import { Brain } from '@/components/Brain'
-import { Dumbbell, Send, RotateCcw, Mic, Square, Keyboard, Sparkles } from 'lucide-react'
+import { Dumbbell, Send, RotateCcw, Mic, Keyboard, Sparkles } from 'lucide-react'
 
 type Product = { id: string; name: string }
 type Msg = { ch: 'me' | 'prospect'; text: string; wpm?: number }
@@ -28,93 +28,116 @@ export default function Practice() {
   const [coach, setCoach] = useState<Coach | null>(null)
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
-  const [recording, setRecording] = useState(false)
-  const [transcribing, setTranscribing] = useState(false)
+  const [listening, setListening] = useState(false)
+  const [interim, setInterim] = useState('')
   const [review, setReview] = useState<Review | null>(null)
   const [reviewing, setReviewing] = useState(false)
   const [err, setErr] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // streaming refs
+  const wsRef = useRef<WebSocket | null>(null)
   const recRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
-  const recStartRef = useRef(0)
+  const historyRef = useRef<Msg[]>([])
+  const processingRef = useRef(false)
+  const queueRef = useRef<{ text: string; wpm?: number }[]>([])
+  const utterStartRef = useRef(0)
+
+  const setHist = (h: Msg[]) => { historyRef.current = h; setHistory(h) }
 
   useEffect(() => {
     api<{ products: Product[] }>('/api/products').then((r) => {
       setProducts(r.products || [])
       if (r.products && r.products[0]) setProductId(r.products[0].id)
     })
-    return () => { streamRef.current?.getTracks().forEach((t) => t.stop()) }
+    return () => teardownMic()
   }, [])
-  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }) }, [history, coach, busy])
+  useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }) }, [history, coach, busy, interim])
 
-  const send = async (closerMessage: string, hist: Msg[], wpm?: number) => {
+  // ---- send a closer turn (queued so streamed finals never overlap) ----
+  const drain = async () => {
+    if (processingRef.current) return
+    const item = queueRef.current.shift()
+    if (!item) return
+    processingRef.current = true
     setBusy(true); setErr('')
     try {
-      const r = await api<{ prospect: string; coach: Coach }>('/api/practice/reply', { productId, difficulty, history: hist.map(({ ch, text }) => ({ ch, text })), closerMessage })
-      const withMe = closerMessage ? [...hist, { ch: 'me', text: closerMessage, wpm } as Msg] : hist
-      setHistory([...withMe, { ch: 'prospect', text: r.prospect }])
+      const { text, wpm } = item
+      const hist = historyRef.current
+      const r = await api<{ prospect: string; coach: Coach }>('/api/practice/reply', { productId, difficulty, history: hist.map(({ ch, text }) => ({ ch, text })), closerMessage: text })
+      setHist([...hist, { ch: 'me', text, wpm }, { ch: 'prospect', text: r.prospect }])
       setCoach(r.coach && r.coach.line ? r.coach : null)
     } catch (e: any) { setErr(e.message || 'Something went wrong — try again.') }
     setBusy(false)
+    processingRef.current = false
+    if (queueRef.current.length) drain()
+  }
+  const submitCloser = (text: string, wpm?: number) => {
+    const t = text.trim(); if (!t) return
+    queueRef.current.push({ text: t, wpm })
+    drain()
+  }
+
+  // ---- continuous mic streaming ----
+  const startMic = async () => {
+    try {
+      if (!streamRef.current) streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+      const t = await token()
+      const proto = location.protocol === 'https:' ? 'wss://' : 'ws://'
+      const ws = new WebSocket(proto + location.host + '/practice-audio?t=' + encodeURIComponent(t!))
+      wsRef.current = ws
+      ws.onopen = () => {
+        const rec = new MediaRecorder(streamRef.current!, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 64000 })
+        rec.ondataavailable = (e) => { if (e.data.size && ws.readyState === 1) e.data.arrayBuffer().then((b) => ws.send(b)) }
+        rec.start(250); recRef.current = rec; setListening(true)
+      }
+      ws.onmessage = (m) => {
+        const d = JSON.parse(m.data)
+        if (d.type === 'interim') {
+          if (!utterStartRef.current && d.text) utterStartRef.current = Date.now()
+          setInterim(d.text || '')
+        } else if (d.type === 'final') {
+          const secs = utterStartRef.current ? (Date.now() - utterStartRef.current) / 1000 : 0
+          utterStartRef.current = 0; setInterim('')
+          if (d.text) {
+            const words = (d.text.match(/\S+/g) || []).length
+            submitCloser(d.text, secs > 1 ? Math.round((words / secs) * 60) : undefined)
+          }
+        }
+      }
+      ws.onclose = () => setListening(false)
+    } catch { setErr('Couldn’t access the mic. Allow mic access, or switch to typing.') }
+  }
+  const teardownMic = () => {
+    try { if (recRef.current && recRef.current.state !== 'inactive') recRef.current.stop() } catch {}
+    try { wsRef.current?.close() } catch {}
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    recRef.current = null; wsRef.current = null; streamRef.current = null
+    setListening(false); setInterim('')
   }
 
   const start = async () => {
     if (!productId) return setErr('Pick a playbook first.')
-    setStarted(true); setHistory([]); setCoach(null); setInput(''); setReview(null)
-    await send('', [])
-  }
-  const replyText = async () => {
-    const msg = input.trim()
-    if (!msg || busy) return
-    setInput('')
-    await send(msg, history)
-  }
-  const reset = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null
-    setStarted(false); setHistory([]); setCoach(null); setInput(''); setErr(''); setReview(null)
-  }
-
-  // ---- voice capture (one recorded turn at a time → Deepgram → text) ----
-  const startRec = async () => {
-    setErr('')
+    setStarted(true); setHist([]); setCoach(null); setInput(''); setReview(null)
+    setBusy(true)
     try {
-      if (!streamRef.current) streamRef.current = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-      const rec = new MediaRecorder(streamRef.current, { mimeType: 'audio/webm;codecs=opus' })
-      chunksRef.current = []
-      rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data) }
-      rec.onstop = onRecStop
-      recRef.current = rec
-      recStartRef.current = Date.now()
-      rec.start()
-      setRecording(true)
-    } catch { setErr('Couldn’t access the mic. Allow mic access, or switch to typing.') }
+      const r = await api<{ prospect: string; coach: Coach }>('/api/practice/reply', { productId, difficulty, history: [], closerMessage: '' })
+      setHist([{ ch: 'prospect', text: r.prospect }])
+      setCoach(r.coach && r.coach.line ? r.coach : null)
+    } catch (e: any) { setErr(e.message || 'Could not start.') }
+    setBusy(false)
+    if (voice) startMic()
   }
-  const stopRec = () => { if (recRef.current && recRef.current.state !== 'inactive') recRef.current.stop(); setRecording(false) }
-  const onRecStop = async () => {
-    const secs = (Date.now() - recStartRef.current) / 1000
-    const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-    if (!blob.size) return
-    setTranscribing(true); setErr('')
-    try {
-      const t = await token()
-      const r = await fetch('/api/practice/stt', { method: 'POST', headers: { 'Content-Type': 'audio/webm', Authorization: `Bearer ${t}` }, body: blob })
-      const { text } = await r.json()
-      setTranscribing(false)
-      const msg = (text || '').trim()
-      if (!msg) { setErr('Didn’t catch that — try again a bit louder.'); return }
-      const words = (msg.match(/\S+/g) || []).length
-      const wpm = secs > 1 ? Math.round((words / secs) * 60) : undefined
-      await send(msg, history, wpm)
-    } catch { setTranscribing(false); setErr('Transcription failed — try again or switch to typing.') }
-  }
+  const replyText = () => { const m = input.trim(); if (!m || busy) return; setInput(''); submitCloser(m) }
+  const reset = () => { teardownMic(); queueRef.current = []; processingRef.current = false; setStarted(false); setHist([]); setCoach(null); setInput(''); setErr(''); setReview(null) }
 
   const endPractice = async () => {
+    teardownMic()
     setReviewing(true); setErr('')
     try {
       const pname = (products || []).find((p) => p.id === productId)?.name
-      const r = await api<Review>('/api/practice/review', { transcript: history.map(({ ch, text }) => ({ ch, text })), productName: pname })
+      const r = await api<Review>('/api/practice/review', { transcript: historyRef.current.map(({ ch, text }) => ({ ch, text })), productName: pname })
       setReview(r)
     } catch (e: any) { setErr(e.message || 'Could not build the review.') }
     setReviewing(false)
@@ -124,12 +147,8 @@ export default function Practice() {
   if (!started) {
     return (
       <div className="mx-auto max-w-[620px] px-8 py-8">
-        <div className="mb-2 flex items-center gap-2">
-          <Dumbbell className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold tracking-tight">Practice a call</h2>
-        </div>
-        <p className="mb-6 text-sm text-muted-foreground">Spar with an AI prospect before the real thing. Speak your lines out loud — the same coach whispers what to say, and you get a delivery review at the end.</p>
-
+        <div className="mb-2 flex items-center gap-2"><Dumbbell className="h-5 w-5 text-primary" /><h2 className="text-xl font-bold tracking-tight">Practice a call</h2></div>
+        <p className="mb-6 text-sm text-muted-foreground">Spar with an AI prospect. In voice mode it just listens — talk naturally, your words drop in when you pause, and you get a delivery review at the end.</p>
         {products && products.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-card p-8 text-center text-sm text-muted-foreground">
             You need a playbook first. <Link to="/playbooks/new" className="text-primary hover:underline">Create one</Link> and come back.
@@ -138,8 +157,7 @@ export default function Practice() {
           <div className="space-y-5">
             <div>
               <div className="mb-1.5 text-xs font-medium text-muted-foreground">Which playbook are you selling?</div>
-              <select value={productId} onChange={(e) => setProductId(e.target.value)}
-                className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary">
+              <select value={productId} onChange={(e) => setProductId(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm outline-none focus:border-primary">
                 {(products || []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
@@ -147,8 +165,7 @@ export default function Practice() {
               <div className="mb-1.5 text-xs font-medium text-muted-foreground">How tough is the prospect?</div>
               <div className="grid grid-cols-3 gap-2">
                 {DIFFS.map((d) => (
-                  <button key={d.id} onClick={() => setDifficulty(d.id)}
-                    className={`rounded-xl border p-3 text-left transition-colors ${difficulty === d.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-secondary'}`}>
+                  <button key={d.id} onClick={() => setDifficulty(d.id)} className={`rounded-xl border p-3 text-left transition-colors ${difficulty === d.id ? 'border-primary bg-primary/5' : 'border-border hover:bg-secondary'}`}>
                     <div className={`text-sm font-semibold ${difficulty === d.id ? 'text-primary' : ''}`}>{d.label}</div>
                     <div className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground">{d.blurb}</div>
                   </button>
@@ -160,7 +177,7 @@ export default function Practice() {
               <div className="flex gap-2">
                 <button onClick={() => setVoice(true)} className={`flex-1 rounded-xl border p-3 text-left transition-colors ${voice ? 'border-primary bg-primary/5' : 'border-border hover:bg-secondary'}`}>
                   <div className={`flex items-center gap-1.5 text-sm font-semibold ${voice ? 'text-primary' : ''}`}><Mic className="h-4 w-4" /> Voice</div>
-                  <div className="mt-0.5 text-[11.5px] text-muted-foreground">Speak out loud — realistic rehearsal</div>
+                  <div className="mt-0.5 text-[11.5px] text-muted-foreground">Always listening — just talk</div>
                 </button>
                 <button onClick={() => setVoice(false)} className={`flex-1 rounded-xl border p-3 text-left transition-colors ${!voice ? 'border-primary bg-primary/5' : 'border-border hover:bg-secondary'}`}>
                   <div className={`flex items-center gap-1.5 text-sm font-semibold ${!voice ? 'text-primary' : ''}`}><Keyboard className="h-4 w-4" /> Type</div>
@@ -176,16 +193,15 @@ export default function Practice() {
     )
   }
 
-  // ---- review screen ----
+  // ---- review ----
   if (review) {
-    const rv = review.review || {} as any
+    const rv = review.review || ({} as any)
     const d = review.delivery
     const notes = rv.notes || rv.text || ''
     return (
       <div className="mx-auto max-w-[680px] px-8 py-8">
         <div className="mb-5 flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          <h2 className="text-xl font-bold tracking-tight">Practice review</h2>
+          <Sparkles className="h-5 w-5 text-primary" /><h2 className="text-xl font-bold tracking-tight">Practice review</h2>
           {rv.score != null && <span className="ml-auto rounded-full bg-primary px-3 py-1 text-sm font-bold text-primary-foreground">{rv.score}/100</span>}
         </div>
         {d && <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -194,20 +210,13 @@ export default function Practice() {
           <Tile label="Longest streak" value={`${d.longestMonologue}w`} warn={d.longestMonologue > 120} />
           <Tile label="Fillers" value={String(d.fillers)} warn={d.fillers >= 8} />
         </div>}
-        {notes ? (
-          <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-5"><Brain md={notes} /></div>
-        ) : (
-          <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">Not enough of the call to review — try a few more exchanges next time.</div>
-        )}
-        <p className="mt-4 text-[11.5px] text-muted-foreground">Delivery is judged on your words, pace, and whether you followed the coaching — not the actual sound of your voice.</p>
-        <div className="mt-5 flex gap-2">
-          <Button size="lg" onClick={reset}><RotateCcw className="h-4 w-4" /> Practice again</Button>
-        </div>
+        {notes ? <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-5"><Brain md={notes} /></div>
+          : <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">Not enough of the call to review — try a few more exchanges next time.</div>}
+        <p className="mt-4 text-[11.5px] text-muted-foreground">Judged on your words, pace, and whether you followed the coaching — not the literal sound of your voice.</p>
+        <div className="mt-5"><Button size="lg" onClick={reset}><RotateCcw className="h-4 w-4" /> Practice again</Button></div>
       </div>
     )
   }
-
-  const lastMe = [...history].reverse().find((m) => m.ch === 'me')
 
   // ---- live session ----
   return (
@@ -216,7 +225,7 @@ export default function Practice() {
         <div className="flex items-center gap-2"><Dumbbell className="h-4 w-4 text-primary" /><h2 className="text-base font-bold tracking-tight">Practice</h2></div>
         <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-semibold capitalize text-muted-foreground">{difficulty} prospect</span>
         <div className="ml-auto flex items-center gap-2">
-          {history.some((m) => m.ch === 'me') && <Button variant="outline" size="sm" onClick={endPractice} disabled={reviewing || busy}>{reviewing ? 'Reviewing…' : 'End & review'}</Button>}
+          {history.some((m) => m.ch === 'me') && <Button variant="outline" size="sm" onClick={endPractice} disabled={reviewing}>{reviewing ? 'Reviewing…' : 'End & review'}</Button>}
           <Button variant="ghost" size="sm" onClick={reset}><RotateCcw className="h-3.5 w-3.5" /> New</Button>
         </div>
       </div>
@@ -229,7 +238,8 @@ export default function Practice() {
             {m.wpm != null && <span className={`ml-2 text-[10.5px] font-medium ${m.wpm > 180 ? 'text-amber-600' : 'text-muted-foreground'}`}>≈{m.wpm} wpm{m.wpm > 180 ? ' · slow down' : ''}</span>}
           </div>
         ))}
-        {(busy || transcribing) && <div className="self-start text-[12px] italic text-muted-foreground">{transcribing ? 'transcribing…' : 'prospect is thinking…'}</div>}
+        {interim && <div className="max-w-[85%] self-end rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-[14px] italic leading-relaxed text-muted-foreground">{interim}…</div>}
+        {(busy && !interim) && <div className="self-start text-[12px] italic text-muted-foreground">prospect is thinking…</div>}
       </div>
 
       {coach && (
@@ -242,12 +252,14 @@ export default function Practice() {
       {err && <p className="mt-2 text-[13px] text-destructive">{err}</p>}
 
       {voice ? (
-        <div className="mt-3 flex flex-col items-center gap-1.5">
-          <Button size="lg" onClick={recording ? stopRec : startRec} disabled={busy || transcribing}
-            className={recording ? 'w-full bg-destructive hover:bg-destructive/90' : 'w-full'}>
-            {recording ? <><Square className="h-4 w-4" /> Stop &amp; send</> : <><Mic className="h-4 w-4" /> {lastMe ? 'Speak your reply' : 'Speak'}</>}
-          </Button>
-          <button onClick={() => setVoice(false)} className="text-[11.5px] text-muted-foreground hover:text-foreground">or type instead</button>
+        <div className="mt-3 flex items-center justify-center gap-2.5 rounded-xl border border-border bg-card px-4 py-3">
+          <span className={`relative flex h-2.5 w-2.5 ${listening ? '' : 'opacity-40'}`}>
+            {listening && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-70" />}
+            <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${listening ? 'bg-destructive' : 'bg-muted-foreground'}`} />
+          </span>
+          <Mic className="h-4 w-4 text-muted-foreground" />
+          <span className="text-[13px] text-muted-foreground">{listening ? 'Listening — just talk. Your words drop in when you pause.' : 'Starting mic…'}</span>
+          <button onClick={() => { teardownMic(); setVoice(false) }} className="ml-auto text-[11.5px] text-muted-foreground hover:text-foreground">type instead</button>
         </div>
       ) : (
         <div className="mt-3 flex items-end gap-2">
@@ -257,7 +269,7 @@ export default function Practice() {
             className="flex-1 resize-none rounded-xl border border-border bg-card px-3.5 py-2.5 text-sm outline-none focus:border-primary" />
           <div className="flex flex-col gap-1">
             <Button size="lg" onClick={replyText} disabled={busy || !input.trim()}><Send className="h-4 w-4" /></Button>
-            <button onClick={() => setVoice(true)} className="text-[10px] text-muted-foreground hover:text-foreground">use voice</button>
+            <button onClick={() => { setVoice(true); startMic() }} className="text-[10px] text-muted-foreground hover:text-foreground">use voice</button>
           </div>
         </div>
       )}

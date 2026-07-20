@@ -1609,8 +1609,8 @@ const server = http.createServer(async (req, res) => {
 // Build the live-STT URL per call so we can pass keyterms — the prospect/company/product
 // names — which nova-3 boosts so proper nouns transcribe correctly instead of as garble
 // (a wrong name in the transcript becomes a wrong name in the whispered line).
-function dgUrl(s) {
-  let url = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=300';
+function dgUrl(s, endpointing = 300) {
+  let url = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=' + endpointing;
   const seen = new Set();
   for (const raw of [s.dealName, s.dealCompany, s.activeProductName]) {
     const t = String(raw || '').trim();
@@ -1697,6 +1697,51 @@ function relayAudio(clientWs, ch, s) {
   });
 }
 
+// Practice voice: stream the closer's mic to Deepgram continuously and push back interim
+// text (as they speak) + a finalized turn on each pause (speech_final). No push-to-talk.
+function practiceRelay(clientWs, s) {
+  const sendMsg = (obj) => { try { if (clientWs.readyState === 1) clientWs.send(JSON.stringify(obj)); } catch {} };
+  const pending = [];
+  const bufferChunk = (d) => { pending.push(d); if (pending.length > 40) pending.splice(0, pending.length - 40); };
+  let dg = null, dgOpen = false, intentional = false, retries = 0, reconnectTimer = null, utter = '';
+
+  function connectDg() {
+    dg = new WebSocket(dgUrl(s, 800), ['token', DG_KEY]);   // ~800ms silence = end of turn, so a natural pause mid-sentence doesn't cut you off
+    dg.binaryType = 'arraybuffer';
+    dg.onopen = () => { dgOpen = true; retries = 0; for (const c of pending) { try { dg.send(c); } catch {} } pending.length = 0; };
+    dg.onmessage = (ev) => {
+      let d; try { d = JSON.parse(ev.data.toString()); } catch { return; }
+      const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0];
+      if (!alt) return;
+      const text = (alt.transcript || '').trim();
+      if (d.is_final) {
+        if (text) utter = (utter ? utter + ' ' : '') + text;
+        sendMsg({ type: 'interim', text: utter });
+        if (d.speech_final) { const full = utter.trim(); utter = ''; if (full) sendMsg({ type: 'final', text: full }); }
+      } else if (text) {
+        sendMsg({ type: 'interim', text: (utter ? utter + ' ' : '') + text });
+      }
+    };
+    dg.onerror = () => {};
+    dg.onclose = () => {
+      dgOpen = false;
+      if (intentional) return;
+      retries++; clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(connectDg, Math.min(3000, 400 * retries));
+    };
+  }
+
+  const keepAlive = setInterval(() => { if (dgOpen) { try { dg.send(JSON.stringify({ type: 'KeepAlive' })); } catch {} } }, 8000);
+  connectDg();
+
+  clientWs.on('message', (data) => { if (dgOpen) { try { dg.send(data); } catch { bufferChunk(data); } } else bufferChunk(data); });
+  clientWs.on('close', () => {
+    intentional = true; clearInterval(keepAlive); clearTimeout(reconnectTimer);
+    try { if (dgOpen) dg.send(JSON.stringify({ type: 'CloseStream' })); } catch {}
+    setTimeout(() => { try { dg.close(); } catch {} }, 800);
+  });
+}
+
 const wss = new WebSocketServer({ server });
 wss.on('connection', async (ws, req) => {
   const u = new URL(req.url, 'http://x');
@@ -1711,6 +1756,8 @@ wss.on('connection', async (ws, req) => {
   } else if (u.pathname === '/audio') {
     const ch = u.searchParams.get('ch') === 'me' ? 'me' : 'prospect';
     relayAudio(ws, ch, s);
+  } else if (u.pathname === '/practice-audio') {
+    practiceRelay(ws, s);
   } else {
     ws.close();
   }
