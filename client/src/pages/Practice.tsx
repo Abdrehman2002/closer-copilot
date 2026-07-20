@@ -106,18 +106,16 @@ export default function Practice() {
       }
       ws.onmessage = (m) => {
         const d = JSON.parse(m.data)
-        if (d.type !== 'stt') return
-        if (!utterStartRef.current && (d.text || utterRef.current)) utterStartRef.current = Date.now()
-        if (d.isFinal) {
-          if (d.text) utterRef.current = (utterRef.current ? utterRef.current + ' ' : '') + d.text
-          setInterim(utterRef.current)
-          if (d.speechFinal) { finalizeTurn(); return }
-        } else if (d.text) {
-          setInterim((utterRef.current ? utterRef.current + ' ' : '') + d.text)
-        }
-        // finalize on a detected pause (no new words for ~1.1s) — robust regardless of Deepgram's endpoint signal
+        // only NEW WORDS count — ignore empty/silence frames so they don't reset the pause timer,
+        // and ignore Deepgram's own end-of-speech flag (fires too early and cut people off mid-sentence)
+        if (d.type !== 'stt' || !d.text) return
+        if (!utterStartRef.current) utterStartRef.current = Date.now()
+        if (d.isFinal) { utterRef.current = (utterRef.current ? utterRef.current + ' ' : '') + d.text; setInterim(utterRef.current) }
+        else setInterim((utterRef.current ? utterRef.current + ' ' : '') + d.text)
+        // you're still talking → restart the countdown. Finalize only after a real ~1.6s pause,
+        // so a natural mid-sentence breath never triggers the prospect.
         if (silenceRef.current) clearTimeout(silenceRef.current)
-        silenceRef.current = setTimeout(() => { if (utterRef.current.trim()) finalizeTurn() }, 1100)
+        silenceRef.current = setTimeout(() => { if (utterRef.current.trim()) finalizeTurn() }, 1600)
       }
       ws.onclose = () => setListening(false)
     } catch { setErr('Couldn’t access the mic. Allow mic access, or switch to typing.') }
