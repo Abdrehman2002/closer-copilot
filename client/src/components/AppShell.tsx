@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
 import { initials } from '@/lib/format'
-import { House, Users, Phone, Layers, Plus, LogOut, Menu, X, BarChart3, Settings as SettingsIcon, Receipt, BookOpen } from 'lucide-react'
+import { House, Users, Phone, Layers, Plus, LogOut, Menu, X, BarChart3, Settings as SettingsIcon, Receipt, BookOpen, Dumbbell } from 'lucide-react'
 
 const groups = [
   {
@@ -22,6 +22,7 @@ const groups = [
     label: 'Library',
     items: [
       { to: '/playbooks', label: 'Playbooks', icon: Layers, end: false },
+      { to: '/practice', label: 'Practice', icon: Dumbbell, end: false },
       { to: '/knowledge', label: 'Knowledge', icon: BookOpen, end: false },
       { to: '/settings', label: 'Settings', icon: SettingsIcon, end: false },
     ],
@@ -35,6 +36,7 @@ const titleFor = (path: string) => {
   if (path.startsWith('/metrics')) return 'Metrics'
   if (path.startsWith('/billing')) return 'Billing'
   if (path.startsWith('/playbooks')) return 'Playbooks'
+  if (path.startsWith('/practice')) return 'Practice'
   if (path.startsWith('/knowledge')) return 'Knowledge'
   if (path.startsWith('/settings')) return 'Settings'
   if (path.startsWith('/new')) return 'New Call'

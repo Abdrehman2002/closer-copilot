@@ -879,6 +879,60 @@ Rules: use ONLY facts from their answers — NEVER invent prices, proof, guarant
 // pre-call tactical battle plan — runs once before each call, spends the best model
 // (not latency sensitive, this is the moat) synthesizing closer + product + Client Brain
 // into a short opening move / predicted objection / close play the closer reads before dialing
+// ---- practice / sparring mode: the AI plays a prospect so a closer can rehearse ----
+const PRACTICE_PERSONAS = {
+  warm: 'You are interested and fairly receptive, with a couple of light concerns. A decent answer wins you over and you move toward yes.',
+  skeptical: 'You are guarded and price-conscious. You raise real objections and do not give in easily, but a genuinely strong, specific answer softens you.',
+  tough: 'You have been burned by an agency before, you are busy and skeptical, and you throw hard objections — price, trust, "you are overseas / can I rely on you", and "let me think about it". Only excellent handling warms you up at all.',
+};
+
+async function practiceProspect(productContent, difficulty, turns) {
+  const persona = PRACTICE_PERSONAS[difficulty] || PRACTICE_PERSONAS.skeptical;
+  const sys = 'You are role-playing a PROSPECT on a live sales call so a salesperson can practice closing. Stay fully in character as the buyer — never coach, never break character, never say you are an AI.\n\n' +
+    'WHO YOU ARE: ' + persona + '\n\n' +
+    "WHAT'S BEING SOLD TO YOU (context so you know the offer — react like a real buyer, do not recite this back):\n" + (String(productContent || '(a marketing/agency service)').slice(0, 1500)) + '\n\n' +
+    'RULES: talk like a real person on a call — short, natural, 1-3 sentences, no lists. Raise the objections someone in your position actually would, and react to what the salesperson just said. If they handle a concern well, soften a little; if they are vague or pushy, stay unconvinced. If there is no salesperson message yet, briefly open the call as a busy prospect who agreed to hop on.';
+  const convo = turns.map(t => (t.ch === 'me' ? 'Salesperson' : 'You (prospect)') + ': ' + t.text).join('\n') || '(the call just started)';
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: LIVE_MODEL, temperature: 0.85, max_tokens: 130,
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: convo + '\n\nReply as the prospect — only what you say out loud:' }]
+    })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  return { text: (j.choices[0].message.content || '').trim().replace(/^(You|Prospect)\s*:\s*/i, ''), usage: j.usage };
+}
+
+// coaching for practice reuses the REAL live prompt + guard, so rehearsal matches a real call
+async function practiceCoach(productContent, closerProfile, turns) {
+  const s = { callGoal: '', closerProfile: closerProfile || null, productContent: productContent || '', memory: '', priorMemoryMd: '', kbDocs: [], turns };
+  const systemPrompt = buildSystemPrompt(s);
+  const recent = turns.slice(-16).map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text).join('\n');
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: LIVE_MODEL, temperature: 0.4, max_tokens: 200,
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: 'LIVE TRANSCRIPT (most recent last):\n' + recent + '\n\nDecide now.' }]
+    })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  const p = parseCoach(j.choices[0].message.content || '');
+  let card = { tone: '', line: '', why: '', technique: '', confidence: 'high' };
+  if (p.decision === 'FIRE' && p.line) {
+    const guardSources = (productContent || '') + '\n' + recent;
+    const neverSay = (closerProfile && closerProfile.never_say) || '';
+    if (validateLine(p.line, guardSources, neverSay).ok) {
+      card = { tone: p.tone || '', line: p.line, why: p.why || '', technique: p.tech || '', confidence: /low/i.test(p.conf || '') ? 'low' : 'high' };
+    }
+  }
+  return { card, usage: j.usage };
+}
+
 async function generateBattlePlan(closerProfile, productContent, productName, memoryMd, clientName, company, goal) {
   const cp = closerProfile || {};
   const closerLines = [
@@ -1077,6 +1131,22 @@ const server = http.createServer(async (req, res) => {
       // pre-made playbooks a new user can start from instead of the interview
       if (urlPath === '/api/playbook-templates' && req.method === 'GET') {
         return sendJson(res, { templates: PLAYBOOK_TEMPLATES });
+      }
+
+      // practice / sparring: AI plays a prospect, the real coach whispers the line to say
+      if (urlPath === '/api/practice/reply' && req.method === 'POST') {
+        const { productId, difficulty, history, closerMessage } = await readBody(req);
+        const prod = productId ? (await sbRest('products?id=eq.' + productId + '&select=name,content', jwt))[0] : null;
+        const productContent = (prod && prod.content) || '';
+        const profile = (await sbRest('profiles?select=tone,framework,signature_phrases,never_say', jwt))[0] || null;
+        const turns = (Array.isArray(history) ? history : []).slice(-20).map(t => ({ ch: t.ch === 'me' ? 'me' : 'prospect', text: String(t.text || '') }));
+        if (closerMessage && String(closerMessage).trim()) turns.push({ ch: 'me', text: String(closerMessage).trim() });
+        const pr = await practiceProspect(productContent, difficulty, turns);
+        logUsage(jwt, user.id, null, 'practice', LIVE_MODEL, pr.usage);
+        turns.push({ ch: 'prospect', text: pr.text });
+        const co = await practiceCoach(productContent, profile, turns);
+        logUsage(jwt, user.id, null, 'practice', LIVE_MODEL, co.usage);
+        return sendJson(res, { prospect: pr.text, coach: co.card });
       }
 
       // ---- knowledge base ----
