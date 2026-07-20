@@ -1703,24 +1703,20 @@ function practiceRelay(clientWs, s) {
   const sendMsg = (obj) => { try { if (clientWs.readyState === 1) clientWs.send(JSON.stringify(obj)); } catch {} };
   const pending = [];
   const bufferChunk = (d) => { pending.push(d); if (pending.length > 40) pending.splice(0, pending.length - 40); };
-  let dg = null, dgOpen = false, intentional = false, retries = 0, reconnectTimer = null, utter = '';
+  let dg = null, dgOpen = false, intentional = false, retries = 0, reconnectTimer = null;
 
   function connectDg() {
-    dg = new WebSocket(dgUrl(s, 800), ['token', DG_KEY]);   // ~800ms silence = end of turn, so a natural pause mid-sentence doesn't cut you off
+    dg = new WebSocket(dgUrl(s, 500), ['token', DG_KEY]);
     dg.binaryType = 'arraybuffer';
     dg.onopen = () => { dgOpen = true; retries = 0; for (const c of pending) { try { dg.send(c); } catch {} } pending.length = 0; };
+    // dumb relay: forward each transcript piece; the client accumulates the utterance and
+    // decides when it's done (on its own silence timer), so end-of-turn doesn't depend on
+    // Deepgram's speech_final firing on a continuous mic stream
     dg.onmessage = (ev) => {
       let d; try { d = JSON.parse(ev.data.toString()); } catch { return; }
       const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0];
       if (!alt) return;
-      const text = (alt.transcript || '').trim();
-      if (d.is_final) {
-        if (text) utter = (utter ? utter + ' ' : '') + text;
-        sendMsg({ type: 'interim', text: utter });
-        if (d.speech_final) { const full = utter.trim(); utter = ''; if (full) sendMsg({ type: 'final', text: full }); }
-      } else if (text) {
-        sendMsg({ type: 'interim', text: (utter ? utter + ' ' : '') + text });
-      }
+      sendMsg({ type: 'stt', text: (alt.transcript || '').trim(), isFinal: !!d.is_final, speechFinal: !!d.speech_final });
     };
     dg.onerror = () => {};
     dg.onclose = () => {

@@ -43,6 +43,8 @@ export default function Practice() {
   const processingRef = useRef(false)
   const queueRef = useRef<{ text: string; wpm?: number }[]>([])
   const utterStartRef = useRef(0)
+  const utterRef = useRef('')
+  const silenceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setHist = (h: Msg[]) => { historyRef.current = h; setHistory(h) }
 
@@ -78,6 +80,16 @@ export default function Practice() {
     queueRef.current.push({ text: t, wpm })
     drain()
   }
+  // the accumulated utterance is "done" once you've paused — submit it as a turn
+  const finalizeTurn = () => {
+    if (silenceRef.current) clearTimeout(silenceRef.current)
+    const full = utterRef.current.trim()
+    if (!full) return
+    const secs = utterStartRef.current ? (Date.now() - utterStartRef.current) / 1000 : 0
+    utterRef.current = ''; utterStartRef.current = 0; setInterim('')
+    const words = (full.match(/\S+/g) || []).length
+    submitCloser(full, secs > 1 ? Math.round((words / secs) * 60) : undefined)
+  }
 
   // ---- continuous mic streaming ----
   const startMic = async () => {
@@ -94,26 +106,29 @@ export default function Practice() {
       }
       ws.onmessage = (m) => {
         const d = JSON.parse(m.data)
-        if (d.type === 'interim') {
-          if (!utterStartRef.current && d.text) utterStartRef.current = Date.now()
-          setInterim(d.text || '')
-        } else if (d.type === 'final') {
-          const secs = utterStartRef.current ? (Date.now() - utterStartRef.current) / 1000 : 0
-          utterStartRef.current = 0; setInterim('')
-          if (d.text) {
-            const words = (d.text.match(/\S+/g) || []).length
-            submitCloser(d.text, secs > 1 ? Math.round((words / secs) * 60) : undefined)
-          }
+        if (d.type !== 'stt') return
+        if (!utterStartRef.current && (d.text || utterRef.current)) utterStartRef.current = Date.now()
+        if (d.isFinal) {
+          if (d.text) utterRef.current = (utterRef.current ? utterRef.current + ' ' : '') + d.text
+          setInterim(utterRef.current)
+          if (d.speechFinal) { finalizeTurn(); return }
+        } else if (d.text) {
+          setInterim((utterRef.current ? utterRef.current + ' ' : '') + d.text)
         }
+        // finalize on a detected pause (no new words for ~1.1s) — robust regardless of Deepgram's endpoint signal
+        if (silenceRef.current) clearTimeout(silenceRef.current)
+        silenceRef.current = setTimeout(() => { if (utterRef.current.trim()) finalizeTurn() }, 1100)
       }
       ws.onclose = () => setListening(false)
     } catch { setErr('Couldn’t access the mic. Allow mic access, or switch to typing.') }
   }
   const teardownMic = () => {
+    if (silenceRef.current) clearTimeout(silenceRef.current)
     try { if (recRef.current && recRef.current.state !== 'inactive') recRef.current.stop() } catch {}
     try { wsRef.current?.close() } catch {}
     streamRef.current?.getTracks().forEach((t) => t.stop())
     recRef.current = null; wsRef.current = null; streamRef.current = null
+    utterRef.current = ''; utterStartRef.current = 0
     setListening(false); setInterim('')
   }
 
@@ -225,7 +240,7 @@ export default function Practice() {
         <div className="flex items-center gap-2"><Dumbbell className="h-4 w-4 text-primary" /><h2 className="text-base font-bold tracking-tight">Practice</h2></div>
         <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[11px] font-semibold capitalize text-muted-foreground">{difficulty} prospect</span>
         <div className="ml-auto flex items-center gap-2">
-          {history.some((m) => m.ch === 'me') && <Button variant="outline" size="sm" onClick={endPractice} disabled={reviewing}>{reviewing ? 'Reviewing…' : 'End & review'}</Button>}
+          <Button variant="outline" size="sm" onClick={endPractice} disabled={reviewing}>{reviewing ? 'Reviewing…' : 'End & review'}</Button>
           <Button variant="ghost" size="sm" onClick={reset}><RotateCcw className="h-3.5 w-3.5" /> New</Button>
         </div>
       </div>
