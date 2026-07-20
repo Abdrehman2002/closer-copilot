@@ -1045,6 +1045,30 @@ function bearer(req) {
   return h.startsWith('Bearer ') ? h.slice(7) : null;
 }
 
+// collect a raw binary request body (for uploaded practice audio), capped so a bad client
+// can't exhaust memory
+function readRawBody(req, limit = 12 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0;
+    req.on('data', (c) => { size += c.length; if (size > limit) { req.destroy(); reject(new Error('audio too large')); return; } chunks.push(c); });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+// one-shot (prerecorded) Deepgram transcription for a recorded practice turn
+async function deepgramTranscribe(audioBuffer, contentType) {
+  const r = await fetch('https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true', {
+    method: 'POST',
+    headers: { 'Authorization': 'Token ' + DG_KEY, 'Content-Type': contentType || 'audio/webm' },
+    body: audioBuffer,
+  });
+  const j = await r.json();
+  if (j.error || j.err_code) throw new Error(j.reason || j.error || 'transcription failed');
+  const alt = j.results && j.results.channels && j.results.channels[0] && j.results.channels[0].alternatives && j.results.channels[0].alternatives[0];
+  return (alt && alt.transcript || '').trim();
+}
+
 // ---- http + ws ----
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
 
@@ -1147,6 +1171,30 @@ const server = http.createServer(async (req, res) => {
         const co = await practiceCoach(productContent, profile, turns);
         logUsage(jwt, user.id, null, 'practice', LIVE_MODEL, co.usage);
         return sendJson(res, { prospect: pr.text, coach: co.card });
+      }
+
+      // transcribe one recorded practice turn (raw audio in the body → Deepgram → text)
+      if (urlPath === '/api/practice/stt' && req.method === 'POST') {
+        const audio = await readRawBody(req);
+        if (!audio.length) return sendJson(res, { text: '' });
+        const text = await deepgramTranscribe(audio, req.headers['content-type']);
+        return sendJson(res, { text });
+      }
+
+      // end-of-practice analysis: score the closer's delivery + deterministic delivery metrics
+      if (urlPath === '/api/practice/review' && req.method === 'POST') {
+        const { transcript, productName } = await readBody(req);
+        const turns = (Array.isArray(transcript) ? transcript : []).map(t => ({ ch: t.ch === 'me' ? 'me' : 'prospect', text: String(t.text || '') }));
+        const delivery = deliveryStats(turns);
+        let review = { text: '', score: null };
+        if (turns.some(t => t.ch === 'me')) {
+          try {
+            const r = await reviewCall(turns, productName || 'practice call', '');
+            logUsage(jwt, user.id, null, 'practice_review', ANALYSIS_MODEL, r.usage);
+            review = { text: r.text, score: r.score };
+          } catch (e) { console.error('[practice review]', e.message); }
+        }
+        return sendJson(res, { review, delivery });
       }
 
       // ---- knowledge base ----
