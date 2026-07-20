@@ -58,6 +58,17 @@ function costUsd(model, promptTokens, completionTokens) {
 const PLAYBOOK = fs.readFileSync(path.join(__dirname, 'playbook.md'), 'utf8');
 const PRODUCT_TEMPLATE = fs.readFileSync(path.join(__dirname, 'products', 'vextria-hvac.md'), 'utf8');
 
+// Pre-made playbook templates: a new user picks one and gets a ready-to-tweak playbook
+// instead of the blank-page interview. Tailored to what agencies commonly sell to US
+// clients, with an "overseas agency" trust layer baked into every objection playbook.
+const PLAYBOOK_TEMPLATES = [
+  { id: 'local-seo', name: 'Local SEO', blurb: 'Rank a local business in Google & the Map Pack' },
+  { id: 'web-design', name: 'Web Design & Development', blurb: 'Build or redesign sites + a monthly care plan' },
+  { id: 'social-media', name: 'Social Media Management', blurb: 'Run a brand’s social on a monthly retainer' },
+  { id: 'paid-ads', name: 'Paid Ads (Google & Meta)', blurb: 'Manage ad campaigns for leads & sales' },
+  { id: 'lead-generation', name: 'Lead Gen & Appointment Setting', blurb: 'Book qualified sales calls via cold outreach' },
+].map(t => ({ ...t, content: fs.readFileSync(path.join(__dirname, 'products', 'templates', t.id + '.md'), 'utf8') }));
+
 const FORMAT_RULES = `Respond in EXACTLY this plain-text format (no JSON, no markdown fences):
 DECISION: FIRE or HOLD
 TONE: <from the tone vocabulary, ALWAYS with a pace, e.g. CALM · slow>
@@ -1035,6 +1046,11 @@ const server = http.createServer(async (req, res) => {
         const out = await compilePlaybook(answers || {});
         logUsage(jwt, user.id, null, 'playbook', ANALYSIS_MODEL, out.usage);
         return sendJson(res, { ok: true, content: out.text });
+      }
+
+      // pre-made playbooks a new user can start from instead of the interview
+      if (urlPath === '/api/playbook-templates' && req.method === 'GET') {
+        return sendJson(res, { templates: PLAYBOOK_TEMPLATES });
       }
 
       // ---- knowledge base ----

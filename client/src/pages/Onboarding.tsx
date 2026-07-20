@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Me } from '@/lib/types'
 import { api } from '@/lib/api'
-import { Interview } from '@/components/Interview'
+import { PlaybookStart } from '@/components/PlaybookStart'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -78,9 +78,9 @@ export default function Onboarding({ me, onComplete }: { me: Me; onComplete: () 
 
         {step === 'playbook' && (
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Build your first playbook</h1>
-            <p className="mb-5 mt-1 text-sm text-muted-foreground">A few quick questions about what you sell — the coach reads this on every call.</p>
-            <Interview onDone={() => next()} />
+            <h1 className="text-2xl font-bold tracking-tight">Your first playbook</h1>
+            <p className="mb-5 mt-1 text-sm text-muted-foreground">This is what the coach reads on every call. Start from a ready-made one and tweak it, or build your own.</p>
+            <PlaybookStart onDone={() => next()} />
           </div>
         )}
 
