@@ -178,6 +178,7 @@ function getSession(userId) {
       lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
       lastSignalTag: null, lastProspectFinalAt: 0,
+      discovery: null, lastDiscoveryAt: 0, discoveryBusy: false,
       simIdx: 0
     };
     sessions.set(userId, s);
@@ -685,6 +686,56 @@ async function coach(s) {
   }
   s.coachBusy = false;
   if (s.coachQueued) { s.coachQueued = false; coach(s); }
+}
+
+// ---- live discovery / qualification tracker (MEDDPICC-lite) ----
+// A checklist the coach fills as the call runs, so the closer sees what's still un-uncovered.
+// Runs on a throttle, fire-and-forget, OFF the whisper's critical path.
+const DISCOVERY_PILLARS = [
+  { key: 'pain', label: 'Pain', q: 'the core problem they actually want solved' },
+  { key: 'cost', label: 'Cost of it', q: 'what that problem is costing them, in their own numbers' },
+  { key: 'outcome', label: 'Desired outcome', q: 'where they want to be / their goal if it were fixed' },
+  { key: 'budget', label: 'Budget', q: 'whether they can invest / any budget reality mentioned' },
+  { key: 'decider', label: 'Who decides', q: 'who signs off — them alone, or other stakeholders' },
+  { key: 'timeline', label: 'Timeline', q: 'when they want to decide or get started' },
+  { key: 'competition', label: 'Alternatives', q: 'what else they are weighing, including doing nothing' },
+];
+
+async function trackDiscovery(s) {
+  if (s.discoveryBusy) return;
+  s.discoveryBusy = true;
+  try {
+    const transcript = s.turns.slice(-30).map(t => (t.ch === 'me' ? 'SELLER' : 'PROSPECT') + ': ' + t.text).join('\n');
+    const items = DISCOVERY_PILLARS.map(p => p.key.toUpperCase() + ' — ' + p.q).join('\n');
+    const sys = 'You maintain a live sales DISCOVERY checklist. From the transcript, decide for each item whether the SELLER has genuinely uncovered it FROM THE PROSPECT yet (the prospect actually revealed it — not just the seller mentioning the topic). Output ONE line per item, EXACTLY this format and nothing else:\nKEY: yes|no | up to a 6-word note of what was learned (empty if no)\nUse these keys in this order: ' + DISCOVERY_PILLARS.map(p => p.key.toUpperCase()).join(', ') + '.\n\nITEMS:\n' + items;
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: ANALYSIS_MODEL, temperature: 0.2, max_tokens: 220,
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: 'TRANSCRIPT:\n' + transcript + '\n\nFill the checklist now.' }]
+      })
+    });
+    const j = await r.json();
+    if (j.error) throw new Error(j.error.message);
+    logUsage(s.jwt, s.userId, s.activeDealId, 'discovery', ANALYSIS_MODEL, j.usage);
+    const raw = j.choices[0].message.content || '';
+    // parse each "KEY: yes|no | note", bounding the note at the next known key so a merged
+    // line can't bleed one pillar's note into another
+    const KEYS = DISCOVERY_PILLARS.map(p => p.key).join('|');
+    const re = new RegExp('\\b(' + KEYS + ')\\s*:\\s*(yes|no)\\b\\s*(?:\\|\\s*(.*?))?(?=\\s*(?:' + KEYS + ')\\s*:|$)', 'gis');
+    const map = {};
+    let mm;
+    while ((mm = re.exec(raw))) map[mm[1].toLowerCase()] = { covered: /yes/i.test(mm[2]), note: (mm[3] || '').trim().replace(/^["']+|["'|]+$/g, '').trim() };
+    const pillars = DISCOVERY_PILLARS.map(p => ({
+      key: p.key, label: p.label,
+      covered: !!(map[p.key] && map[p.key].covered),
+      note: (map[p.key] && map[p.key].note) || '',
+    }));
+    s.discovery = pillars;
+    broadcast(s, { type: 'discovery', pillars });
+  } catch (e) { console.error('[discovery]', e.message); }
+  s.discoveryBusy = false;
 }
 
 // ---- post-call extraction → per-client Markdown "Client Brain" ----
@@ -1401,6 +1452,7 @@ const server = http.createServer(async (req, res) => {
         s.callGoal = goal && GOALS[goal] ? goal : '';
         s.turns = []; s.cards = []; s.callLog = null; s.lastCardAt = 0; s.callStartAt = Date.now();
         s.memory = ''; s.priorMemoryMd = ''; s.dealName = ''; s.dealCompany = '';
+        s.discovery = null; s.lastDiscoveryAt = 0;
 
         const [prodRow, profRows, kbRows] = await Promise.all([
           sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt),
@@ -1669,6 +1721,8 @@ function relayAudio(clientWs, ch, s) {
           clearTimeout(s.coachTimer);
           // prospect actually stopped (speech_final) → coach immediately; mid-stream → short debounce
           s.coachTimer = setTimeout(() => coach(s), d.speech_final ? 0 : 400);
+          // throttled discovery tracker — independent of the coach cooldown, off the whisper path
+          if (s.turns.length >= 3 && Date.now() - (s.lastDiscoveryAt || 0) > 12000) { s.lastDiscoveryAt = Date.now(); trackDiscovery(s); }
         }
       } else {
         broadcast(s, { type: 'interim', ch, text });

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, token } from './api'
-import type { Turn, CardData, Outcome } from './types'
+import type { Turn, CardData, Outcome, DiscoveryPillar } from './types'
 import { renderLineHtml } from './coaching'
 
 type State = {
@@ -17,6 +17,7 @@ type State = {
   transcript: Turn[]
   cards: CardData[]
   streaming: CardData | null
+  discovery: DiscoveryPillar[] | null   // live discovery/MEDDPICC checklist
   signal: { tag: string; hint: string } | null   // instant lane: live read while prospect talks
   interim: string
   awaitingOutcome: boolean   // capture stopped, End Call modal should show
@@ -26,7 +27,7 @@ const state: State = {
   active: false, status: '', srvOn: false,
   dealId: null, productId: null, brief: null, battlePlan: null, clientName: null, productName: null,
   goalLabel: null,
-  transcript: [], cards: [], streaming: null, signal: null, interim: '', awaitingOutcome: false,
+  transcript: [], cards: [], streaming: null, discovery: null, signal: null, interim: '', awaitingOutcome: false,
 }
 
 const listeners = new Set<() => void>()
@@ -67,6 +68,7 @@ async function connectEvents() {
     else if (d.type === 'interim') { state.interim = (d.ch === 'me' ? 'ME: ' : 'PROSPECT: ') + d.text; emit() }
     else if (d.type === 'card-stream') pushCard(d)
     else if (d.type === 'signal') { state.signal = d.tag ? { tag: d.tag, hint: d.hint } : null; emit(); updatePipSignal() }
+    else if (d.type === 'discovery') { state.discovery = d.pillars; emit() }
     else if (d.type === 'status') { state.status = d.msg; emit() }
   }
 }
@@ -103,7 +105,7 @@ export const liveCall = {
       '/api/call/start', { dealId, productId, goal })
     state.brief = r.brief; state.battlePlan = r.battlePlan; state.clientName = r.clientName; state.productName = r.productName
     state.goalLabel = r.goalLabel || null
-    state.transcript = []; state.cards = []; state.streaming = null; state.signal = null; state.interim = ''; state.awaitingOutcome = false
+    state.transcript = []; state.cards = []; state.streaming = null; state.discovery = null; state.signal = null; state.interim = ''; state.awaitingOutcome = false
     state.dealId = dealId; state.productId = productId
     state.status = 'Allow the mic, then pick your Meet tab with "Also share tab audio"…'; emit()
 

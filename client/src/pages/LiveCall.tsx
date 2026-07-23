@@ -6,7 +6,7 @@ import { CoachingCard } from '@/lib/coaching'
 import { OutcomeModal } from '@/components/OutcomeModal'
 import { Button } from '@/components/ui/button'
 import type { Outcome } from '@/lib/types'
-import { PictureInPicture2, Zap, Target } from 'lucide-react'
+import { PictureInPicture2, Zap, Target, Check, Circle } from 'lucide-react'
 
 export default function LiveCall() {
   const { state, live } = useLiveCall()
@@ -46,6 +46,18 @@ export default function LiveCall() {
           {state.active && <Button variant="destructive" size="sm" onClick={() => live.stopCapture()}>End Call</Button>}
         </div>
       </div>
+
+      {state.discovery && (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+          <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Discovery</span>
+          {state.discovery.map((p) => (
+            <span key={p.key} title={p.note || (p.covered ? 'covered' : 'still open — dig here')}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${p.covered ? 'bg-success/12 text-success' : 'border border-dashed border-border text-muted-foreground'}`}>
+              {p.covered ? <Check className="h-3 w-3" /> : <Circle className="h-2.5 w-2.5" />} {p.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {(state.battlePlan || state.brief) && (
         <div className="mb-3 grid max-h-[28vh] gap-3 overflow-y-auto md:grid-cols-2">

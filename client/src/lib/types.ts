@@ -44,6 +44,13 @@ export interface CallDetail {
   deals?: { name: string; company: string } | null
 }
 
+export interface DiscoveryPillar {
+  key: string
+  label: string
+  covered: boolean
+  note: string
+}
+
 export interface Delivery {
   talkRatioPct: number | null
   questions: number
