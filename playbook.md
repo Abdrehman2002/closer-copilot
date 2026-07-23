@@ -73,3 +73,52 @@ Never fire twice for the same moment; if the last card was ignored and the momen
 Use the product knowledge and the prospect's own words, pain, and prior-call history. A generic
 line is a weak line. The whole edge is a technique aimed at THIS objection with THIS offer's
 best answer for THIS buyer.
+
+## DIAGNOSE BEFORE YOU PRESCRIBE (both one-call and two-call)
+Selling is problem-solving. Understand their problem better than they do, then show the offer as the
+BRIDGE from where they are now — the cost, the frustration ("Hell") — to where they want to be
+("Heaven"). Never pitch or name a price before the pain is quantified in THEIR numbers; a solution
+offered before the problem is felt gets ignored. Even a one-call close is discovery-heavy first —
+you earn the right to pitch by making the pain present and specific.
+- Pull their pain, its cause, how long it's dragged on, and what it costs — in their words and numbers.
+- Reflect their words back so they know you get it; label the emotion; use silence to pull more out.
+- Get "Heaven" too: their ideal outcome in 12 months and WHY it matters (freedom, growth, security).
+- TEMP-CHECK before the ask: "on a 1–10, how sure are you this gets you from where you are to where you
+  want to be?" Anything under a 10 is a hidden objection — surface and handle it BEFORE you talk price.
+
+## THE OBJECTION ENGINE — every objection, same spine
+Never argue, never "but". Work it in this order:
+1. AGREE with the feeling ("totally fair", "I hear you").
+2. CONFIRM THE FIT: "aside from that — do you feel what we laid out actually gets you where you want to go?"
+   If yes, the objection is fear or logistics, not the solution.
+3. ISOLATE the real one — almost every objection is MONEY or FEAR-IT-WON'T-WORK: "is it more the
+   investment, or whether it'll actually work for you?" Handle the real one, not the smokescreen.
+4. REFRAME to THEIR outcome: weigh the cost of staying exactly as they are against the cost of the fix;
+   put them in the shoes of the version of them that already solved this — what would that person do now?
+5. GET A MICRO-COMMITMENT — a concrete next action, right now.
+Top objections → the move (stay a question, aimed at their outcome):
+- "I need to think about it" → confirm fit, then "what specifically do you need to think through?"
+- "It's too much money" → isolate money-vs-fear; weigh it against what the problem costs them monthly and one solved job.
+- "I need to talk to my partner" → "when you do — what do you think they'll ask?" Pre-handle it; usually money or risk.
+- "No time right now" → the problem isn't waiting either; another quarter unchanged vs starting now.
+- "I've been burned before" → separate you from the last one (done-for-you, you run it, risk reversal); one bad hire isn't a life sentence.
+- "Can you guarantee it?" → nobody can guarantee an outcome; what's guaranteed is the risk-reversal and that you do the work.
+ETHIC: these fire ONLY for a genuine-fit prospect who wants the outcome. If they truly can't afford it or
+it isn't right for them, help them see that and let them walk — never push the wrong person into a yes.
+
+## PRICING & THE ASK
+- ANCHOR HIGH first: name the bigger all-in figure, or the cost of the alternative (a human doing it),
+  BEFORE the real price — so the real price lands as relief, not shock.
+- VALUE-STACK: name what's included (build, setup, done-for-you, support) so the price feels small next to the value.
+- THREE OPTIONS beat yes/no: a lower, a target (the one you want), a premium — turn "should I?" into "which?".
+- Say the price with CERTAINTY (falling pitch), then GO SILENT. First to talk loses.
+- Assume the sale: "do you want to handle it in full, or split it?" Take payment on the call whenever you can.
+- NEGOTIATE BY TRADING, never a plain discount: drop on price ONLY in exchange for something — a faster
+  commitment, a testimonial, referrals, or reduced scope. A cut for nothing cheapens the whole offer.
+
+## ONE-CALL vs TWO-CALL — serve the chosen style
+- BOTH start with real discovery; the only difference is WHEN you pitch and close.
+- ONE-CALL (smaller / ready buyer): diagnose deeply, bridge to the solution, pitch to their pain,
+  temp-check, then close on THIS call. Don't invent reasons to wait on a ready, qualified buyer.
+- TWO-CALL (bigger / more stakeholders): call one is discovery ONLY — no pitch, no price — and ends by
+  locking call two with the right people. Call two presents and closes.

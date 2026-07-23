@@ -273,6 +273,17 @@ specific date/time on the calendar with the right people, before this call ends.
   or whether it works?"), summarizing THEIR stated pain and commitments back to them from the Client Brain.
 - Do NOT reopen discovery or introduce new features/doubts. Fewer words, more certainty, real deadlines only.`,
   },
+  one_call: {
+    label: 'One-call close — diagnose, then close today',
+    guidance: `THIS IS A ONE-CALL CLOSE. Success = discovery deep enough to earn the pitch, then a
+decision TODAY. Discovery STILL comes first and heavy — do not pitch or name a price until the pain is
+quantified in THEIR numbers and you've temp-checked their confidence (1–10).
+- Sequence: diagnose (pain, its cost, desired outcome) → bridge to the solution → pitch to THEIR pain →
+  temp-check → handle objections with the objection engine → anchor high, value-stack, ask, take payment.
+- Do NOT stall a ready, qualified buyer into a second call — if they're a fit and confident, close now.
+- But respect the buyer: if the pain isn't real or they're not qualified, slow down. A forced close on a
+  bad-fit buyer is a WRONG card, not a win.`,
+  },
   follow_up: {
     label: 'Follow-up — re-engage & advance',
     guidance: `THIS IS A FOLLOW-UP CALL. Success = the deal visibly moves: last call's commitments
