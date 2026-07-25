@@ -17,24 +17,31 @@ export function renderLineHtml(raw: string): string {
 }
 
 export function CoachingCard({
-  id, tone, line, why, technique, used, confidence, streaming, onRate, className,
+  id, tone, line, why, technique, used, confidence, streaming, onRate, className, size = 'default',
 }: {
   id?: number; tone: string; line: string; why?: string; technique?: string; used?: boolean | null
   confidence?: 'high' | 'low'; streaming?: boolean; onRate?: (id: number, used: boolean) => void; className?: string
+  // 'lg' is for the marketing/demo context (landing page), where the card is the hero and
+  // needs to read from a distance. The live-call HUD stays on 'default' — those sizes are
+  // tuned for glancing at mid-conversation, not for scale.
+  size?: 'default' | 'lg'
 }) {
   const silent = /silent/i.test(tone)
+  const lg = size === 'lg'
   return (
-    <div className={cn('rounded-xl border border-border bg-card p-4 shadow-sm', className)}>
+    <div className={cn('rounded-xl border border-border bg-card shadow-sm', lg ? 'p-5' : 'p-4', className)}>
       <div className="mb-2.5 flex items-start justify-between gap-2">
         {/* Tone leads the card: you read HOW to say it before the words. */}
         <span className="flex flex-wrap items-center gap-1.5">
           <span className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5',
+            'inline-flex items-center gap-1.5 rounded-lg',
+            lg ? 'px-3 py-2' : 'px-2.5 py-1.5',
             silent ? 'bg-amber-600/12' : 'bg-primary/12'
           )}>
-            <AudioLines className={cn('h-4 w-4 shrink-0', silent ? 'text-amber-700' : 'text-primary')} />
+            <AudioLines className={cn('shrink-0', lg ? 'h-[18px] w-[18px]' : 'h-4 w-4', silent ? 'text-amber-700' : 'text-primary')} />
             <span className={cn(
-              'text-[13.5px] font-extrabold uppercase tracking-[0.08em]',
+              'font-extrabold uppercase tracking-[0.08em]',
+              lg ? 'text-[15px]' : 'text-[13.5px]',
               silent ? 'text-amber-700' : 'text-primary'
             )}>{tone || '…'}</span>
           </span>
@@ -66,7 +73,7 @@ export function CoachingCard({
           </div>
         )}
       </div>
-      <div className="cl-line text-[21px] font-semibold leading-snug" dangerouslySetInnerHTML={{ __html: renderLineHtml(line) }} />
+      <div className={cn('cl-line font-semibold leading-snug', lg ? 'text-[27px]' : 'text-[21px]')} dangerouslySetInnerHTML={{ __html: renderLineHtml(line) }} />
       {!streaming && (technique || why) && (
         <div className="mt-2 text-xs text-muted-foreground">
           <span className="font-semibold text-primary">{technique}</span>{why ? ` — ${why}` : ''}

@@ -34,21 +34,24 @@ function CoachDemo() {
           <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
           <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
           <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-          <span className="ml-2 text-xs font-medium text-slate-500">Live Call · Mike Torres</span>
-          <span className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold text-red-500"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> live</span>
+          <span className="ml-2 text-[14px] font-medium text-slate-500">Live Call · Mike Torres</span>
+          <span className="ml-auto flex items-center gap-1.5 text-[12.5px] font-semibold text-red-500"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> live</span>
         </div>
-        <div className="flex min-h-[400px] flex-col gap-3 bg-[#f8f9fb] p-5">
-          <div className="ml-auto max-w-[52%] rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-[14px] text-slate-700">
-            <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-primary">Me</span>
+        <div className="flex min-h-[400px] flex-col gap-3.5 bg-[#f8f9fb] p-5">
+          <div className="ml-auto max-w-[56%] rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-[16px] leading-snug text-slate-700">
+            <span className="mb-1 block text-[11.5px] font-bold uppercase tracking-wider text-primary">Me</span>
             So with setup it's fourteen hundred, all in.
           </div>
-          <div key={`p${i}`} className="max-w-[52%] animate-fade-up rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[14px] text-slate-700">
-            <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-amber-700">Prospect</span>
+          <div key={`p${i}`} className="max-w-[56%] animate-fade-up rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[16px] leading-snug text-slate-700">
+            <span className="mb-1 block text-[11.5px] font-bold uppercase tracking-wider text-amber-700">Prospect</span>
             {s.prospect}
           </div>
+          {/* mt-auto anchors the coached line to the bottom of the window, so the reserved
+              space reads as a deliberate gap between "what they said" and "what you say"
+              instead of an empty hole before the card fades in */}
           {showCard && (
-            <div key={`c${i}`} className="animate-fade-up">
-              <CoachingCard tone={s.tone} line={s.line} />
+            <div key={`c${i}`} className="mt-auto animate-fade-up">
+              <CoachingCard tone={s.tone} line={s.line} size="lg" />
             </div>
           )}
         </div>
@@ -64,8 +67,8 @@ const chips = ['Live whisper', 'Deal memory', 'Your playbooks']
 function Wordmark() {
   return (
     <div className="flex items-center gap-2.5">
-      <img src="/brand/mark-blue.png" alt="Closer Copilot" className="h-[27px] w-[27px]" />
-      <span className="text-[19px] font-semibold tracking-tight">Closer <span className="font-bold">Copilot</span></span>
+      <img src="/brand/mark-blue.png" alt="Closer Copilot" className="h-[34px] w-[34px]" />
+      <span className="font-display text-[23px] font-semibold tracking-tight">Closer <span className="font-extrabold">Copilot</span></span>
     </div>
   )
 }
@@ -129,7 +132,7 @@ export default function Landing() {
       <div className="relative z-10 mx-auto my-auto flex w-full max-w-[1700px] flex-col items-center gap-8 py-8 lg:flex-row lg:items-center lg:justify-between lg:gap-14">
         {/* MAIN: headline + live demo, the pitch, delivered in ~2 seconds */}
         <div className="flex w-full min-w-0 flex-1 flex-col items-center text-center lg:items-start lg:text-left">
-          <h1 className="animate-hero-in text-[30px] font-extrabold leading-[1.1] tracking-tight md:text-[42px] xl:text-[48px]">
+          <h1 className="animate-hero-in font-display text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] md:text-[42px] xl:text-[48px]">
             Never freeze on a sales call again.
           </h1>
           <p className="animate-hero-in mt-3.5 max-w-xl text-[15px] text-muted-foreground md:text-[16.5px]" style={{ animationDelay: '90ms' }}>
@@ -148,7 +151,7 @@ export default function Landing() {
         <div className="relative w-full max-w-[440px] shrink-0">
           <div className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[380px] w-[380px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/[0.06] blur-[100px]" />
           <div className="rounded-2xl border border-border bg-card p-7 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_16px_40px_-12px_rgba(16,24,40,0.10)]">
-            <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
+            <h2 className="font-display text-[26px] font-extrabold tracking-tight">Welcome back</h2>
             <p className="mt-1.5 text-sm text-muted-foreground">Sign in to your workspace.</p>
 
             <div className="mt-7 space-y-4">
