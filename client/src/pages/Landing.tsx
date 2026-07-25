@@ -26,7 +26,7 @@ function CoachDemo() {
   const s = SCENES[i]
 
   return (
-    <div className="relative w-full max-w-[720px] animate-float">
+    <div className="relative w-full max-w-[1080px] animate-float">
       <div className="absolute -inset-8 rounded-[32px] bg-primary/[0.14] blur-[60px]" />
       <div className="absolute inset-0 translate-x-3 translate-y-4 rounded-2xl border border-black/5 bg-white/70 shadow-xl" />
       <div className="relative w-full overflow-hidden rounded-2xl border border-black/[0.07] bg-white shadow-[0_30px_70px_-20px_rgba(20,45,90,0.30)]">
@@ -37,12 +37,12 @@ function CoachDemo() {
           <span className="ml-2 text-xs font-medium text-slate-500">Live Call · Mike Torres</span>
           <span className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold text-red-500"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> live</span>
         </div>
-        <div className="flex min-h-[260px] flex-col gap-2.5 bg-[#f8f9fb] p-4">
-          <div className="ml-auto max-w-[64%] rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-[13.5px] text-slate-700">
+        <div className="flex min-h-[400px] flex-col gap-3 bg-[#f8f9fb] p-5">
+          <div className="ml-auto max-w-[52%] rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-[14px] text-slate-700">
             <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-primary">Me</span>
             So with setup it's fourteen hundred, all in.
           </div>
-          <div key={`p${i}`} className="max-w-[64%] animate-fade-up rounded-xl border border-amber-500/20 bg-amber-500/5 px-3.5 py-2.5 text-[13.5px] text-slate-700">
+          <div key={`p${i}`} className="max-w-[52%] animate-fade-up rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-[14px] text-slate-700">
             <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wider text-amber-700">Prospect</span>
             {s.prospect}
           </div>
@@ -111,26 +111,28 @@ export default function Landing() {
     // One shared canvas (no hard divider between a "hero side" and a "form side"), both
     // the demo card and the sign-in card float on the same gradient, which is what makes it
     // read as one designed page instead of two panels stitched together.
-    <div className="relative min-h-[100dvh] bg-gradient-to-br from-[#d9e7fc] via-[#eef4fe] to-[#d6e5fb] px-6 py-8 md:px-10">
+    <div className="relative flex min-h-[100dvh] flex-col bg-gradient-to-br from-[#d9e7fc] via-[#eef4fe] to-[#d6e5fb] px-6 py-7 md:px-12">
       <div
         className="pointer-events-none absolute inset-0 opacity-60"
         style={{ backgroundImage: 'radial-gradient(rgba(15,45,90,0.10) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
       />
 
-      <div className="relative z-10 mx-auto flex max-w-[1180px] items-center justify-between gap-4">
+      <div className="relative z-10 mx-auto flex w-full max-w-[1700px] items-center justify-between gap-4">
         <Wordmark />
         <button onClick={goToSignUp} className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
           New here? <span className="font-medium text-primary">Create an account</span>
         </button>
       </div>
 
-      <div className="relative z-10 mx-auto mt-6 flex max-w-[1180px] flex-col items-center gap-8 pb-8 lg:mt-7 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
+      {/* my-auto (not items-center) centers the block vertically while staying scroll-safe:
+          if the content ever exceeds the viewport it grows downward instead of clipping the top */}
+      <div className="relative z-10 mx-auto my-auto flex w-full max-w-[1700px] flex-col items-center gap-8 py-8 lg:flex-row lg:items-center lg:justify-between lg:gap-14">
         {/* MAIN: headline + live demo, the pitch, delivered in ~2 seconds */}
         <div className="flex w-full min-w-0 flex-1 flex-col items-center text-center lg:items-start lg:text-left">
-          <h1 className="animate-hero-in text-[30px] font-extrabold leading-[1.12] tracking-tight md:text-[38px]">
+          <h1 className="animate-hero-in text-[30px] font-extrabold leading-[1.1] tracking-tight md:text-[42px] xl:text-[48px]">
             Never freeze on a sales call again.
           </h1>
-          <p className="animate-hero-in mt-3 max-w-lg text-[15px] text-muted-foreground" style={{ animationDelay: '90ms' }}>
+          <p className="animate-hero-in mt-3.5 max-w-xl text-[15px] text-muted-foreground md:text-[16.5px]" style={{ animationDelay: '90ms' }}>
             It hears the objection and hands you the line, with the tone to say it in.
           </p>
           <div className="animate-hero-in mt-7 hidden w-full justify-center md:flex lg:justify-start" style={{ animationDelay: '180ms' }}>
@@ -143,7 +145,7 @@ export default function Landing() {
 
         {/* SIGN IN, unchanged flow (sign-in first), just given the same floating-card depth
             as the demo so both halves feel like one designed page */}
-        <div className="relative w-full max-w-[400px] shrink-0">
+        <div className="relative w-full max-w-[440px] shrink-0">
           <div className="pointer-events-none absolute left-1/2 top-1/3 -z-10 h-[380px] w-[380px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/[0.06] blur-[100px]" />
           <div className="rounded-2xl border border-border bg-card p-7 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_16px_40px_-12px_rgba(16,24,40,0.10)]">
             <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
