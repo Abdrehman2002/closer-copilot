@@ -5,24 +5,36 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CoachingCard } from '@/lib/coaching'
 
+// Each scene pairs an objection with the headline that names it, so the copy narrates
+// whatever the demo is showing rather than rotating independently beside it.
 const SCENES = [
-  { prospect: 'Honestly, fourteen hundred is a lot right now.', tone: 'CALM · slow', line: "I hear you, |||| most owners said the same… ↘ until they counted the *missed* calls." },
-  { prospect: 'I already have an answering service.', tone: 'CURIOUS · genuine', line: "Totally fair, || what does yours do when a *job's* on the line? ↗" },
-  { prospect: 'Let me run it by my brother first.', tone: 'WARM · slower', line: "Of course, || is it the *price* you're weighing, || or whether it'll work? ↗" },
+  {
+    headline: 'Never flinch when they push back on price.',
+    prospect: 'Honestly, fourteen hundred is a lot right now.',
+    tone: 'CALM · slow',
+    line: "I hear you, |||| most owners said the same… ↘ until they counted the *missed* calls.",
+  },
+  {
+    headline: 'Know exactly what to say, every time.',
+    prospect: 'I already have an answering service.',
+    tone: 'CURIOUS · genuine',
+    line: "Totally fair, || what does yours do when a *job's* on the line? ↗",
+  },
+  {
+    headline: 'Turn “let me think about it” into “yes”.',
+    prospect: 'Let me run it by my brother first.',
+    tone: 'WARM · slower',
+    line: "Of course, || is it the *price* you're weighing, || or whether it'll work? ↗",
+  },
 ]
+const SCENE_MS = 6000   // long enough to read the coached line AND absorb the new headline
+const CARD_DELAY_MS = 1100
 
 // Landscape live-call demo: transcript stacks above, the coached line (real CoachingCard,
 // same delivery-mark rendering as the live product) sits below in the same window, one
 // card telling the whole story, not two cards split apart.
-function CoachDemo() {
-  const [i, setI] = useState(0)
-  const [showCard, setShowCard] = useState(false)
-  useEffect(() => {
-    setShowCard(false)
-    const t1 = setTimeout(() => setShowCard(true), 1100)
-    const t2 = setTimeout(() => setI((x) => (x + 1) % SCENES.length), 4800)
-    return () => { clearTimeout(t1); clearTimeout(t2) }
-  }, [i])
+// Presentational only — the scene clock lives in Landing so the headline stays in lockstep
+function CoachDemo({ i, showCard }: { i: number; showCard: boolean }) {
   const s = SCENES[i]
 
   return (
@@ -80,6 +92,16 @@ export default function Landing() {
   const [busy, setBusy] = useState<'in' | 'up' | null>(null)
   const emailRef = useRef<HTMLInputElement>(null)
 
+  // One clock drives both the rotating headline and the demo scene
+  const [scene, setScene] = useState(0)
+  const [showCard, setShowCard] = useState(false)
+  useEffect(() => {
+    setShowCard(false)
+    const t1 = setTimeout(() => setShowCard(true), CARD_DELAY_MS)
+    const t2 = setTimeout(() => setScene((x) => (x + 1) % SCENES.length), SCENE_MS)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [scene])
+
   // The header link is wayfinding, not a second signup path: it brings the card into view
   // (it sits below the fold on small screens) and drops the cursor in the first field, so
   // there's still exactly one "Create an account" action, down in the card.
@@ -132,16 +154,27 @@ export default function Landing() {
       <div className="relative z-10 mx-auto my-auto flex w-full max-w-[1700px] flex-col items-center gap-8 py-8 lg:flex-row lg:items-center lg:justify-between lg:gap-14">
         {/* MAIN: headline + live demo, the pitch, delivered in ~2 seconds */}
         <div className="flex w-full min-w-0 flex-1 flex-col items-center text-center lg:items-start lg:text-left">
-          <h1 className="animate-hero-in font-display text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] md:text-[42px] xl:text-[48px]">
-            Never freeze on a sales call again.
-          </h1>
+          {/* min-height reserves room for the longest headline so swapping copy never
+              shoves the demo card up and down. key= re-triggers the fade on each change. */}
+          <div className="flex min-h-[74px] items-center md:min-h-[100px] xl:min-h-[116px]">
+            <h1
+              key={scene}
+              className="animate-hero-in font-display text-[30px] font-extrabold leading-[1.1] tracking-[-0.02em] md:text-[42px] xl:text-[48px]"
+            >
+              {SCENES[scene].headline}
+            </h1>
+          </div>
           <p className="animate-hero-in mt-3.5 max-w-xl text-[15px] text-muted-foreground md:text-[16.5px]" style={{ animationDelay: '90ms' }}>
             It hears the objection and hands you the line, with the tone to say it in.
           </p>
           <div className="animate-hero-in mt-7 hidden w-full justify-center md:flex lg:justify-start" style={{ animationDelay: '180ms' }}>
-            <CoachDemo />
+            <CoachDemo i={scene} showCard={showCard} />
           </div>
-          <p className="animate-hero-in mt-6 text-[12px] font-medium text-foreground/50" style={{ animationDelay: '300ms' }}>
+          <p className="animate-hero-in mt-6 flex items-center gap-2 text-[13px] font-medium text-foreground/70" style={{ animationDelay: '300ms' }}>
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+            Built by an agency owner who closes on it every day
+          </p>
+          <p className="animate-hero-in mt-2 text-[12px] font-medium text-foreground/45" style={{ animationDelay: '360ms' }}>
             {chips.map((c, i) => <span key={c}>{i > 0 && ' · '}{c}</span>)}
           </p>
         </div>
