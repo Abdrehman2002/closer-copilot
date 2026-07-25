@@ -62,10 +62,19 @@ function CoachDemo() {
 
 const chips = ['Live whisper', 'Deal memory', 'Your playbooks']
 
-function Wordmark() {
+// fixedLight: for panels whose background stays light regardless of app theme (the visual
+// panel's gradient is hardcoded light) — the mark must NOT theme-swap there or it disappears.
+function Wordmark({ fixedLight }: { fixedLight?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="h-[22px] w-[22px] rounded-[7px] bg-primary shadow-[0_4px_14px_hsl(var(--primary)/0.5)]" />
+      {fixedLight ? (
+        <img src="/brand/mark-blue.png" alt="Closer Copilot" className="h-[22px] w-[22px]" />
+      ) : (
+        <>
+          <img src="/brand/mark-blue.png" alt="Closer Copilot" className="h-[22px] w-[22px] dark:hidden" />
+          <img src="/brand/mark-white.png" alt="Closer Copilot" className="hidden h-[22px] w-[22px] dark:block" />
+        </>
+      )}
       <span className="text-[17px] font-semibold tracking-tight">Closer <span className="font-bold">Copilot</span></span>
     </div>
   )
@@ -96,7 +105,7 @@ export default function Landing() {
         <div className="pointer-events-none absolute -left-20 -top-24 h-[380px] w-[380px] rounded-full bg-primary/10 blur-[90px]" />
         <div className="pointer-events-none absolute -bottom-28 right-0 h-[340px] w-[340px] rounded-full bg-primary/[0.08] blur-[90px]" />
 
-        <div className="relative z-10"><Wordmark /></div>
+        <div className="relative z-10"><Wordmark fixedLight /></div>
 
         <div className="relative z-10 flex max-w-[440px] flex-col items-center">
           <h1 className="text-[26px] font-extrabold leading-tight tracking-tight">Know exactly what to say —<br /><span className="text-primary">live, on every call.</span></h1>
@@ -139,6 +148,7 @@ export default function Landing() {
               Backed by a 30-day guarantee: we measure your close rate together —
               if it doesn't improve, full refund.
             </p>
+            <p className="pt-2 text-center text-[10.5px] text-muted-foreground/60">Owned by Vextria AI</p>
           </div>
         </div>
       </div>

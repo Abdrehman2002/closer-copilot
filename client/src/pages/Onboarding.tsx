@@ -32,7 +32,8 @@ export default function Onboarding({ me, onComplete }: { me: Me; onComplete: () 
     <div className="grid min-h-screen place-items-center bg-background px-4">
       <div className="w-full max-w-[560px] rounded-2xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-1 flex items-center gap-2.5">
-          <div className="h-5 w-5 rounded-[6px] bg-primary" />
+          <img src="/brand/mark-blue.png" alt="Closer Copilot" className="h-5 w-5 dark:hidden" />
+          <img src="/brand/mark-white.png" alt="Closer Copilot" className="hidden h-5 w-5 dark:block" />
           <span className="text-[15px] font-semibold tracking-tight">Closer <span className="font-bold">Copilot</span></span>
         </div>
         <div className="mb-6 text-xs text-muted-foreground">Setup · step {i + 1} of {steps.length}</div>

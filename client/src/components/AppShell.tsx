@@ -49,7 +49,8 @@ function SidebarContent({ email, onNavigate }: { email: string; onNavigate?: () 
   return (
     <>
       <div className="flex items-center gap-2.5 px-5 py-4">
-        <div className="h-5 w-5 rounded-[6px] bg-primary" />
+        <img src="/brand/mark-blue.png" alt="" className="h-5 w-5 dark:hidden" />
+        <img src="/brand/mark-white.png" alt="" className="hidden h-5 w-5 dark:block" />
         <span className="text-[15px] font-semibold tracking-tight">Closer <span className="font-bold">Copilot</span></span>
       </div>
 
@@ -97,6 +98,7 @@ function SidebarContent({ email, onNavigate }: { email: string; onNavigate?: () 
             <LogOut className="h-4 w-4" />
           </button>
         </div>
+        <div className="mt-2 px-1.5 text-[10px] text-muted-foreground/60">Owned by Vextria AI</div>
       </div>
     </>
   )
