@@ -1,15 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { sb } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { CoachingCard } from '@/lib/coaching'
-import { Check } from 'lucide-react'
 
 const SCENES = [
-  { prospect: 'Honestly, fourteen hundred is a lot right now.', tone: 'CALM · slow', line: "I hear you — |||| most owners said the same… ↘ until they counted the *missed* calls." },
-  { prospect: 'I already have an answering service.', tone: 'CURIOUS · genuine', line: "Totally fair — || what does yours do when a *job's* on the line? ↗" },
-  { prospect: 'Let me run it by my brother first.', tone: 'WARM · slower', line: "Of course — || is it the *price* you're weighing, || or whether it'll work? ↗" },
+  { prospect: 'Honestly, fourteen hundred is a lot right now.', tone: 'CALM · slow', line: "I hear you, |||| most owners said the same… ↘ until they counted the *missed* calls." },
+  { prospect: 'I already have an answering service.', tone: 'CURIOUS · genuine', line: "Totally fair, || what does yours do when a *job's* on the line? ↗" },
+  { prospect: 'Let me run it by my brother first.', tone: 'WARM · slower', line: "Of course, || is it the *price* you're weighing, || or whether it'll work? ↗" },
 ]
 
 function CoachDemo() {
@@ -36,7 +35,7 @@ function CoachDemo() {
             <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
-            <span className="ml-2 text-xs font-medium text-slate-500">Live Call — Mike Torres</span>
+            <span className="ml-2 text-xs font-medium text-slate-500">Live Call · Mike Torres</span>
             <span className="ml-auto flex items-center gap-1.5 text-[11px] font-semibold text-red-500"><span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> live</span>
           </div>
           <div className="flex min-h-[300px] flex-col gap-3 bg-[#f8f9fb] p-4">
@@ -63,7 +62,7 @@ function CoachDemo() {
 const chips = ['Live whisper', 'Deal memory', 'Your playbooks']
 
 // fixedLight: for panels whose background stays light regardless of app theme (the visual
-// panel's gradient is hardcoded light) — the mark must NOT theme-swap there or it disappears.
+// panel's gradient is hardcoded light) , the mark must not theme-swap there or it disappears.
 function Wordmark({ fixedLight }: { fixedLight?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
@@ -84,42 +83,47 @@ export default function Landing() {
   const [email, setEmail] = useState('')
   const [pass, setPass] = useState('')
   const [msg, setMsg] = useState<{ t: string; ok?: boolean }>({ t: '' })
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'in' | 'up' | null>(null)
+
+  // This is a fixed light-brand surface (the demo mockup and hero glow were built as one
+  // consistent light look), lock it regardless of the app's dark-mode preference, which
+  // resumes normally once signed in. Restores whatever was there on unmount.
+  useLayoutEffect(() => {
+    const root = document.documentElement
+    const hadDark = root.classList.contains('dark')
+    root.classList.remove('dark')
+    return () => { if (hadDark) root.classList.add('dark') }
+  }, [])
 
   const signIn = async () => {
-    setBusy(true); setMsg({ t: 'Signing in…', ok: true })
+    setBusy('in'); setMsg({ t: '' })
     const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password: pass })
-    setBusy(false); if (error) setMsg({ t: error.message })
+    setBusy(null); if (error) setMsg({ t: error.message })
   }
   const signUp = async () => {
-    setBusy(true); setMsg({ t: 'Creating your workspace…', ok: true })
+    setBusy('up'); setMsg({ t: '' })
     const { data, error } = await sb.auth.signUp({ email: email.trim(), password: pass })
-    setBusy(false); if (error) return setMsg({ t: error.message })
-    if (!data.session) setMsg({ t: 'Account created — check your email to confirm, then sign in.', ok: true })
+    setBusy(null); if (error) return setMsg({ t: error.message })
+    if (!data.session) setMsg({ t: 'Account created, check your email to confirm, then sign in.', ok: true })
   }
 
   return (
-    <div className="grid h-screen grid-cols-1 overflow-hidden md:grid-cols-2">
+    <div className="grid min-h-[100dvh] grid-cols-1 overflow-hidden md:grid-cols-2">
       {/* VISUAL (left) */}
       <div className="relative hidden flex-col items-center justify-between overflow-hidden border-r border-border bg-gradient-to-br from-[#eef3fd] via-white to-[#e7effe] p-12 text-center md:flex">
-        <div className="pointer-events-none absolute -left-20 -top-24 h-[380px] w-[380px] rounded-full bg-primary/10 blur-[90px]" />
-        <div className="pointer-events-none absolute -bottom-28 right-0 h-[340px] w-[340px] rounded-full bg-primary/[0.08] blur-[90px]" />
+        <div className="pointer-events-none absolute -left-24 -top-28 h-[420px] w-[420px] rounded-full bg-primary/[0.07] blur-[100px]" />
 
         <div className="relative z-10"><Wordmark fixedLight /></div>
 
         <div className="relative z-10 flex max-w-[440px] flex-col items-center">
-          <h1 className="text-[26px] font-extrabold leading-tight tracking-tight">Know exactly what to say —<br /><span className="text-primary">live, on every call.</span></h1>
+          <h1 className="text-[26px] font-extrabold leading-tight tracking-tight">Know exactly what to say<br /><span className="text-primary">live, on every call.</span></h1>
           <p className="mt-2 text-sm text-muted-foreground">Whispered coaching that hears the objection and hands you the line.</p>
           <div className="mt-8 flex justify-center"><CoachDemo /></div>
         </div>
 
-        <div className="relative z-10 flex flex-wrap justify-center gap-2">
-          {chips.map((c) => (
-            <span key={c} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[12px] font-medium text-foreground/70">
-              <Check className="h-3.5 w-3.5 text-primary" /> {c}
-            </span>
-          ))}
-        </div>
+        <p className="relative z-10 text-[11px] font-medium text-foreground/50">
+          {chips.map((c, i) => <span key={c}>{i > 0 && ' · '}{c}</span>)}
+        </p>
       </div>
 
       {/* FORM (right) */}
@@ -130,7 +134,6 @@ export default function Landing() {
           <p className="mt-1.5 text-sm text-muted-foreground">Sign in to your workspace.</p>
 
           <div className="mt-7 space-y-4">
-            {msg.t && <p className={`text-[13px] ${msg.ok ? 'text-primary' : 'text-destructive'}`}>{msg.t}</p>}
             <div>
               <Label htmlFor="email">Email</Label>
               <Input id="email" type="email" autoComplete="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -139,14 +142,15 @@ export default function Landing() {
               <Label htmlFor="pass">Password</Label>
               <Input id="pass" type="password" autoComplete="current-password" placeholder="Your password" value={pass} onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') signIn() }} />
             </div>
-            <Button className="w-full" size="lg" disabled={busy} onClick={signIn}>Sign in</Button>
+            <Button className="w-full" size="lg" disabled={busy !== null} onClick={signIn}>{busy === 'in' ? 'Signing in…' : 'Sign in'}</Button>
             <div className="flex items-center gap-3 py-1 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-border" /><span>new here?</span><div className="h-px flex-1 bg-border" />
             </div>
-            <Button className="w-full" size="lg" variant="outline" disabled={busy} onClick={signUp}>Create an account</Button>
+            <Button className="w-full" size="lg" variant="outline" disabled={busy !== null} onClick={signUp}>{busy === 'up' ? 'Creating…' : 'Create an account'}</Button>
+            {msg.t && <p className={`text-[13px] ${msg.ok ? 'text-primary' : 'text-destructive'}`}>{msg.t}</p>}
             <p className="pt-1 text-center text-xs leading-relaxed text-muted-foreground">
-              Backed by a 30-day guarantee: we measure your close rate together —
-              if it doesn't improve, full refund.
+              Backed by a 30-day guarantee: we measure your close rate together,
+              and if it doesn't improve, full refund.
             </p>
             <p className="pt-2 text-center text-[10.5px] text-muted-foreground/60">Owned by Vextria AI</p>
           </div>

@@ -87,3 +87,15 @@ a:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; bord
 .animate-float { animation: float 5.5s ease-in-out infinite; }
 @keyframes float-slow { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-16px) } }
 .animate-float-slow { animation: float-slow 7s ease-in-out infinite; }
+
+/* Respect prefers-reduced-motion app-wide: collapse animations/transitions to effectively
+   instant and stop infinite loops (e.g. .animate-float) at one iteration, rather than only
+   patching individual components. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
