@@ -102,15 +102,15 @@ export default function Landing() {
     // One shared canvas (no hard divider between a "hero side" and a "form side"), both
     // the demo card and the sign-in card float on the same gradient, which is what makes it
     // read as one designed page instead of two panels stitched together.
-    <div className="relative min-h-[100dvh] overflow-hidden bg-gradient-to-br from-[#e4edfc] via-[#f7fafe] to-[#e8f0fd] px-6 py-8 md:px-10">
+    <div className="relative min-h-[100dvh] bg-gradient-to-br from-[#d9e7fc] via-[#eef4fe] to-[#d6e5fb] px-6 py-8 md:px-10">
       <div
-        className="pointer-events-none absolute inset-0 opacity-40"
-        style={{ backgroundImage: 'radial-gradient(rgba(15,45,90,0.08) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
+        className="pointer-events-none absolute inset-0 opacity-60"
+        style={{ backgroundImage: 'radial-gradient(rgba(15,45,90,0.10) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
       />
 
       <div className="relative z-10 mx-auto max-w-[1180px]"><Wordmark /></div>
 
-      <div className="relative z-10 mx-auto mt-10 flex max-w-[1180px] flex-col items-center gap-10 lg:mt-16 lg:flex-row lg:items-start lg:justify-between">
+      <div className="relative z-10 mx-auto mt-8 flex max-w-[1180px] flex-col items-center gap-10 pb-10 lg:mt-12 lg:flex-row lg:items-start lg:justify-between">
         {/* MAIN: headline + live demo, the pitch, delivered in ~2 seconds */}
         <div className="flex min-w-0 flex-1 flex-col items-center text-center lg:items-start lg:text-left">
           <h1 className="animate-hero-in text-[27px] font-extrabold leading-tight tracking-tight md:text-[32px]">
@@ -119,10 +119,10 @@ export default function Landing() {
           <p className="animate-hero-in mt-2.5 max-w-md text-sm text-muted-foreground" style={{ animationDelay: '90ms' }}>
             It hears the objection and hands you the line, with the tone to say it in.
           </p>
-          <div className="animate-hero-in mt-8 hidden justify-center md:flex lg:justify-start" style={{ animationDelay: '180ms' }}>
+          <div className="animate-hero-in mt-7 hidden justify-center md:flex lg:justify-start" style={{ animationDelay: '180ms' }}>
             <CoachDemo />
           </div>
-          <p className="animate-hero-in mt-6 text-[11px] font-medium text-foreground/50" style={{ animationDelay: '300ms' }}>
+          <p className="animate-hero-in mt-5 text-[11px] font-medium text-foreground/50" style={{ animationDelay: '300ms' }}>
             {chips.map((c, i) => <span key={c}>{i > 0 && ' · '}{c}</span>)}
           </p>
         </div>
