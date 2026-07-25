@@ -61,19 +61,12 @@ function CoachDemo() {
 
 const chips = ['Live whisper', 'Deal memory', 'Your playbooks']
 
-// fixedLight: for panels whose background stays light regardless of app theme (the visual
-// panel's gradient is hardcoded light) , the mark must not theme-swap there or it disappears.
-function Wordmark({ fixedLight }: { fixedLight?: boolean }) {
+// The whole page force-locks to light theme below (see useLayoutEffect in Landing), so the
+// mark never needs to theme-swap here — always the blue variant, no dark asset to load.
+function Wordmark() {
   return (
     <div className="flex items-center gap-2.5">
-      {fixedLight ? (
-        <img src="/brand/mark-blue.png" alt="Closer Copilot" className="h-[22px] w-[22px]" />
-      ) : (
-        <>
-          <img src="/brand/mark-blue.png" alt="Closer Copilot" className="h-[22px] w-[22px] dark:hidden" />
-          <img src="/brand/mark-white.png" alt="Closer Copilot" className="hidden h-[22px] w-[22px] dark:block" />
-        </>
-      )}
+      <img src="/brand/mark-blue.png" alt="Closer Copilot" className="h-[22px] w-[22px]" />
       <span className="text-[17px] font-semibold tracking-tight">Closer <span className="font-bold">Copilot</span></span>
     </div>
   )
@@ -109,27 +102,34 @@ export default function Landing() {
 
   return (
     <div className="grid min-h-[100dvh] grid-cols-1 overflow-hidden md:grid-cols-2">
-      {/* VISUAL (left) */}
-      <div className="relative hidden flex-col items-center justify-between overflow-hidden border-r border-border bg-gradient-to-br from-[#eef3fd] via-white to-[#e7effe] p-12 text-center md:flex">
-        <div className="pointer-events-none absolute -left-24 -top-28 h-[420px] w-[420px] rounded-full bg-primary/[0.07] blur-[100px]" />
-
-        <div className="relative z-10"><Wordmark fixedLight /></div>
+      {/* VISUAL (left) — one centered composition (brand + copy + card + trust line), not
+          three anchors spread across the viewport with justify-between */}
+      <div className="relative hidden flex-col items-center justify-center overflow-hidden border-r border-border bg-gradient-to-br from-[#eef3fd] via-white to-[#e7effe] p-12 text-center md:flex">
+        {/* spotlight glow, centered behind the whole group so the card reads as floating in light */}
+        <div className="pointer-events-none absolute left-1/2 top-1/2 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/[0.09] blur-[120px]" />
+        {/* faint dot-grid texture, premium-SaaS quiet backdrop */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-40"
+          style={{ backgroundImage: 'radial-gradient(rgba(15,45,90,0.08) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
+        />
 
         <div className="relative z-10 flex max-w-[440px] flex-col items-center">
+          <div className="mb-6"><Wordmark /></div>
           <h1 className="text-[26px] font-extrabold leading-tight tracking-tight">Know exactly what to say<br /><span className="text-primary">live, on every call.</span></h1>
-          <p className="mt-2 text-sm text-muted-foreground">Whispered coaching that hears the objection and hands you the line.</p>
-          <div className="mt-8 flex justify-center"><CoachDemo /></div>
+          <p className="mt-2.5 text-sm text-muted-foreground">Whispered coaching that hears the objection and hands you the line.</p>
+          <div className="mt-9 flex justify-center"><CoachDemo /></div>
+          <p className="mt-7 text-[11px] font-medium text-foreground/50">
+            {chips.map((c, i) => <span key={c}>{i > 0 && ' · '}{c}</span>)}
+          </p>
         </div>
-
-        <p className="relative z-10 text-[11px] font-medium text-foreground/50">
-          {chips.map((c, i) => <span key={c}>{i > 0 && ' · '}{c}</span>)}
-        </p>
       </div>
 
-      {/* FORM (right) */}
-      <div className="flex items-center justify-center bg-background px-6 py-10">
-        <div className="w-full max-w-sm">
-          <div className="mb-8"><Wordmark /></div>
+      {/* FORM (right) — matches the left panel's depth language so both halves read as one
+          designed page instead of a polished hero bolted to a plain form */}
+      <div className="relative flex items-center justify-center bg-background px-6 py-10">
+        <div className="pointer-events-none absolute left-1/2 top-[38%] h-[420px] w-[420px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/[0.05] blur-[110px]" />
+        <div className="relative w-full max-w-sm rounded-2xl border border-border bg-card p-8 shadow-[0_1px_2px_rgba(16,24,40,0.04),0_16px_40px_-12px_rgba(16,24,40,0.10)]">
+          <div className="mb-7"><Wordmark /></div>
           <h2 className="text-2xl font-bold tracking-tight">Welcome back</h2>
           <p className="mt-1.5 text-sm text-muted-foreground">Sign in to your workspace.</p>
 
