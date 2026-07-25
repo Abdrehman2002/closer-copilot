@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { sb } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -75,6 +75,15 @@ export default function Landing() {
   const [pass, setPass] = useState('')
   const [msg, setMsg] = useState<{ t: string; ok?: boolean }>({ t: '' })
   const [busy, setBusy] = useState<'in' | 'up' | null>(null)
+  const emailRef = useRef<HTMLInputElement>(null)
+
+  // The header link is wayfinding, not a second signup path: it brings the card into view
+  // (it sits below the fold on small screens) and drops the cursor in the first field, so
+  // there's still exactly one "Create an account" action, down in the card.
+  const goToSignUp = () => {
+    emailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    emailRef.current?.focus({ preventScroll: true })
+  }
 
   // This is a fixed light-brand surface (the demo mockup and hero glow were built as one
   // consistent light look), lock it regardless of the app's dark-mode preference, which
@@ -108,7 +117,12 @@ export default function Landing() {
         style={{ backgroundImage: 'radial-gradient(rgba(15,45,90,0.10) 1px, transparent 1px)', backgroundSize: '22px 22px' }}
       />
 
-      <div className="relative z-10 mx-auto max-w-[1180px]"><Wordmark /></div>
+      <div className="relative z-10 mx-auto flex max-w-[1180px] items-center justify-between gap-4">
+        <Wordmark />
+        <button onClick={goToSignUp} className="text-[13px] text-muted-foreground transition-colors hover:text-foreground">
+          New here? <span className="font-medium text-primary">Create an account</span>
+        </button>
+      </div>
 
       <div className="relative z-10 mx-auto mt-6 flex max-w-[1180px] flex-col items-center gap-8 pb-8 lg:mt-7 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
         {/* MAIN: headline + live demo, the pitch, delivered in ~2 seconds */}
@@ -138,7 +152,7 @@ export default function Landing() {
             <div className="mt-7 space-y-4">
               <div>
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" type="email" autoComplete="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Input ref={emailRef} id="email" type="email" autoComplete="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
               </div>
               <div>
                 <Label htmlFor="pass">Password</Label>
