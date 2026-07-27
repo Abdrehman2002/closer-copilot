@@ -101,10 +101,6 @@ must be precise enough to perform without thinking:
 - If the right move is silence: LINE: … and TONE: SILENT — go quiet ~3 seconds, let them fill it
 - If DEAL MEMORY is present, USE it: reference what THIS prospect said in previous calls
   (their objections, commitments, stakeholders, stated pain) whenever it sharpens the move.
-- VARY YOUR OPENING. Never start two cards in a row the same way, and do not lean on one stock
-  phrase ("Totally fair", "I hear you") for a whole call — a closer repeating himself six times
-  sounds scripted and the prospect notices. Acknowledge in a fresh way each time, or skip the
-  acknowledgement and go straight to the question.
 - FACTS ARE SACRED: never state a price, discount, guarantee, statistic, or feature that is not
   explicitly in the playbook, the Client Brain, or this call's transcript. If you don't know the
   number, ask a question instead of guessing. Invented facts get the closer caught lying.
@@ -179,7 +175,7 @@ function getSession(userId) {
       activeDealId: null, activeProductId: null, activeProductName: '',
       productContent: '', memory: '', dealState: null, dealName: '', dealCompany: '',
       closerProfile: null, callGoal: '', kbDocs: [],
-      lastCardAt: 0, coachBusy: false, coachQueued: false, coachTimer: null,
+      lastCardAt: 0, coachGen: 0, coachAbort: null, coachTimer: null,
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
       lastSignalTag: null, lastProspectFinalAt: 0,
       discovery: null, lastDiscoveryAt: 0, discoveryBusy: false,
@@ -413,12 +409,13 @@ function buildSystemPrompt(s) {
     FORMAT_RULES +
     (s.memory || '') +
     kbBlock(s) +
-    '\n\nLIVE TRIGGER (read on the moment right now): ' + detectTrigger(s.turns) +
     (s.callGoal && GOALS[s.callGoal] ? '\nREMEMBER: serve the meeting goal (' + GOALS[s.callGoal].label + ') — not the default close drive.' : '');
 }
 
 // ---- coach loop (streaming, per session) ----
-const CARD_COOLDOWN_MS = 2500;
+// No card cooldown: one card per prospect turn is enforced by the generation guard in coach().
+// A timer-based cooldown silently swallowed the card for a NEW objection raised soon after the
+// last one — which read as the coach answering the wrong thing.
 const REP_QUIET_MS = 650;   // rep considered "still delivering" if they spoke within this window
 const MAX_HOLD_MS = 6000;   // never hold a card longer than this
 
@@ -608,25 +605,29 @@ const NUM_WORD_LIST = ['thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen'
 // === line-guard end ===
 
 async function coach(s) {
-  if (s.coachBusy) { s.coachQueued = true; return; }
-  if (Date.now() - s.lastCardAt < CARD_COOLDOWN_MS) return;
   if (!s.turns.length) return;
-  s.coachBusy = true;
+  // ONE card per thing the prospect actually said.
+  //
+  // Deepgram emits several is_final segments inside a single spoken utterance, so coach() gets
+  // called again while a request is still in flight. The old code queued those calls and replayed
+  // them the instant the request returned — against a transcript that had barely moved. That is
+  // what produced a dozen cards all answering the same objection, and why, once the prospect had
+  // moved on, the closer was still being fed answers to the PREVIOUS thing they said.
+  //
+  // Instead: each invocation takes a generation number and cancels the one before it. Only the
+  // newest run may speak; older ones are aborted mid-flight and their results dropped. When the
+  // prospect stops talking exactly one run survives — the one that saw the complete turn.
+  const gen = ++s.coachGen;
+  if (s.coachAbort) s.coachAbort.abort();
+  const ac = new AbortController();
+  s.coachAbort = ac;
+  const stale = () => gen !== s.coachGen;
   try {
     const recent = s.turns.slice(-24)
       .map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text)
       .join('\n');
     const systemPrompt = buildSystemPrompt(s);
-    // Repetition guard. Only the OPENERS go in the per-turn prompt — the full instruction
-    // lives in FORMAT_RULES, which sits in the cached system prefix and is therefore free to
-    // repeat. Sending whole prior lines plus a restated instruction every turn cost ~160
-    // tokens and measured +320ms on the replay harness, which is real money on a live call.
-    const usedOpeners = s.cards.slice(-3)
-      .map(c => String(c.line || '').replace(/[|↗↘*\[\]]/g, ' ').trim().split(/\s+/).slice(0, 5).join(' '))
-      .filter(Boolean);
-    const userPrompt = 'LIVE TRANSCRIPT (most recent last):\n' + recent +
-      (usedOpeners.length ? '\n\nOPENERS ALREADY USED (do not reuse): ' + usedOpeners.map(o => '"' + o + '…"').join(' / ') : '') +
-      '\n\nDecide now.';
+    const userPrompt = 'LIVE TRANSCRIPT (most recent last):\n' + recent + '\n\nDecide now.';
     // guard inputs: every number the line is ALLOWED to say must come from here
     const guardSources = (s.productContent || '') + '\n' + (s.priorMemoryMd || '') + '\n' + recent;
     const neverSay = (s.closerProfile && s.closerProfile.never_say) || '';
@@ -644,7 +645,8 @@ async function coach(s) {
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ]
-      })
+      }),
+      signal: ac.signal
     });
     if (!r.ok) throw new Error('OpenAI ' + r.status + ' ' + (await r.text()).slice(0, 120));
 
@@ -655,6 +657,7 @@ async function coach(s) {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (stale()) return;   // the prospect moved on — this answer is about to be wrong
       sse += dec.decode(value, { stream: true });
       let nl;
       while ((nl = sse.indexOf('\n')) >= 0) {
@@ -683,6 +686,7 @@ async function coach(s) {
     }
 
     logUsage(s.jwt, s.userId, s.activeDealId, 'live', LIVE_MODEL, streamUsage);
+    if (stale()) return;
 
     let p = parseCoach(raw);
     if (p.decision === 'FIRE' && p.line) {
@@ -702,9 +706,11 @@ async function coach(s) {
               { role: 'assistant', content: raw },
               { role: 'user', content: 'REJECTED — your line ' + v.issue + '. Regenerate the full response in the same format. Use ONLY prices, numbers and claims that appear in the playbook, Client Brain or transcript, and never use forbidden phrases. If you cannot source the number, ask a question instead.' }
             ]
-          })
+          }),
+          signal: ac.signal
         });
         const j2 = await r2.json();
+        if (stale()) return;
         if (j2.error) throw new Error(j2.error.message);
         logUsage(s.jwt, s.userId, s.activeDealId, 'live_retry', LIVE_MODEL, j2.usage);
         const raw2 = (j2.choices[0].message.content || '');
@@ -715,8 +721,6 @@ async function coach(s) {
           logEvent(s, { type: 'guard-withheld', issue: v.issue });
           if (lastSentLine !== null) broadcast(s, { type: 'card-stream', tone: '', line: lastSentLine, why: '', technique: '', done: true });
           broadcast(s, { type: 'status', msg: 'coach: line withheld (failed fact-check) — trust your read' });
-          s.coachBusy = false;
-          if (s.coachQueued) { s.coachQueued = false; coach(s); }
           return;
         }
       }
@@ -731,11 +735,11 @@ async function coach(s) {
       console.log('[coach]', s.userId.slice(0, 8), 'hold');
     }
   } catch (e) {
+    // an aborted run is the normal case when the prospect keeps talking — not an error
+    if (e.name === 'AbortError' || stale()) return;
     console.error('[coach]', e.message);
     broadcast(s, { type: 'status', msg: 'coach error: ' + e.message });
   }
-  s.coachBusy = false;
-  if (s.coachQueued) { s.coachQueued = false; coach(s); }
 }
 
 // ---- live discovery / qualification tracker (MEDDPICC-lite) ----
@@ -1897,6 +1901,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment,
+  buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
   deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };
