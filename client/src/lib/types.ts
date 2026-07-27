@@ -7,6 +7,7 @@ export interface ClientRow {
   status: Status
   calls: number
   created_at?: string
+  product_id?: string | null
 }
 
 export interface CallRow {

@@ -31,12 +31,22 @@ export default function NewCall() {
     ]).then(([p, c, cfg]) => {
       setProducts(p.products || []); setClients(c.clients || [])
       setGoals(cfg.goals || [])
-      setProductId(p.products?.[0]?.id || '')
       const pre = params.get('client')
-      setClientId(pre && (c.clients || []).some((x) => x.id === pre) ? pre : '')
+      const preClient = pre ? (c.clients || []).find((x) => x.id === pre) : undefined
+      setClientId(preClient ? pre! : '')
+      // Prefer what was sold to this client last time. Falling back to products[0] is how a
+      // Local SEO call ended up being coached as Lead Gen — the oldest product silently wins.
+      setProductId(preClient?.product_id || p.products?.[0]?.id || '')
       setReady(true)
     })
   }, [])
+
+  // switching client re-points the playbook at whatever was sold to them before
+  const pickClient = (id: string) => {
+    setClientId(id)
+    const prev = clients.find((c) => c.id === id)?.product_id
+    if (prev && products.some((p) => p.id === prev)) setProductId(prev)
+  }
 
   const start = async () => {
     setBusy(true); setMsg('')
@@ -78,7 +88,7 @@ export default function NewCall() {
           </div>
           <div>
             <div className="mb-1.5 text-xs font-medium text-muted-foreground">Client</div>
-            <select className={selectCls} value={clientId} onChange={(e) => setClientId(e.target.value)}>
+            <select className={selectCls} value={clientId} onChange={(e) => pickClient(e.target.value)}>
               <option value="">+ New client…</option>
               {clients.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''} ({c.calls})</option>)}
             </select>

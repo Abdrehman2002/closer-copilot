@@ -31,6 +31,14 @@ export default function LiveCall() {
 
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-bold tracking-tight">Live Call{state.clientName ? ` — ${state.clientName}` : ''}</h2>
+        {/* which playbook is actually driving the cards — visible so a wrong one is caught in
+            the first ten seconds instead of halfway through the call */}
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${state.productName ? 'bg-secondary text-muted-foreground' : 'bg-amber-500/15 text-amber-700'}`}
+          title={state.productName ? 'The coach is selling this playbook' : 'No product knowledge loaded — the coach can only ask questions, not sell'}
+        >
+          {state.productName || 'No playbook loaded'}
+        </span>
         {state.goalLabel && (
           <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-semibold text-primary" title="The coach is playing for this goal">
             Goal: {state.goalLabel.split('—')[0].trim()}

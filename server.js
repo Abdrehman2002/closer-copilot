@@ -1429,10 +1429,13 @@ const server = http.createServer(async (req, res) => {
 
       // ---- clients (deals) ----
       if (urlPath === '/api/clients' && req.method === 'GET') {
-        const deals = await sbRest('deals?select=id,name,company,status,created_at,calls(count)&order=created_at.desc', jwt);
+        const deals = await sbRest('deals?select=id,name,company,status,created_at,product_id,calls(count)&order=created_at.desc', jwt);
         return sendJson(res, {
           clients: deals.map(d => ({
             id: d.id, name: d.name, company: d.company, status: d.status,
+            // what was sold to THIS client last time — New Call preselects it so a repeat call
+            // can't silently default to whichever product happens to be oldest
+            product_id: d.product_id || null,
             calls: (d.calls && d.calls[0] && d.calls[0].count) || 0, created_at: d.created_at
           }))
         });
@@ -1566,21 +1569,38 @@ const server = http.createServer(async (req, res) => {
       // ---- call lifecycle ----
       if (urlPath === '/api/call/start' && req.method === 'POST') {
         const { dealId, productId, goal } = await readBody(req);
-        if (productId) s.activeProductId = productId;
         s.activeDealId = dealId || null;
+        // The request is the ONLY source of truth for what is being sold. This used to be
+        // `if (productId) s.activeProductId = productId`, which silently kept whatever product
+        // the session was holding when the client sent none — and the session is an in-memory
+        // Map keyed by user that survives for days. That is how a call for one client ended up
+        // coached with a different client's product. If nothing is specified, fall back to the
+        // deal's own product, and failing that carry NO product knowledge rather than the
+        // wrong one.
+        s.activeProductId = productId || null;
+        if (!s.activeProductId && s.activeDealId) {
+          const d = (await sbRest('deals?id=eq.' + s.activeDealId + '&select=product_id', jwt))[0];
+          s.activeProductId = (d && d.product_id) || null;
+        }
         s.callGoal = goal && GOALS[goal] ? goal : '';
         s.turns = []; s.cards = []; s.callLog = null; s.lastCardAt = 0; s.callStartAt = Date.now();
         s.memory = ''; s.priorMemoryMd = ''; s.dealName = ''; s.dealCompany = '';
         s.discovery = null; s.lastDiscoveryAt = 0;
 
         const [prodRow, profRows, kbRows] = await Promise.all([
-          sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt),
+          s.activeProductId ? sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt) : [],
           sbRest('profiles?user_id=eq.' + user.id + '&select=tone,framework,signature_phrases,never_say', jwt),
           sbRest('documents?select=name,content&' + (s.activeDealId ? 'or=(scope.eq.global,deal_id.eq.' + s.activeDealId + ')' : 'scope=eq.global'), jwt),
         ]);
         const prod = prodRow[0];
         s.productContent = (prod && prod.content) || '';
         s.activeProductName = (prod && prod.name) || '';
+        // remember what was actually sold to this client, so the next call with them opens on
+        // the right product instead of whichever one happens to be oldest
+        if (s.activeDealId && s.activeProductId) {
+          sbRest('deals?id=eq.' + s.activeDealId, jwt, { method: 'PATCH', prefer: 'return=minimal', body: { product_id: s.activeProductId } })
+            .catch(e => console.error('[deal-product]', e.message));
+        }
         s.closerProfile = profRows[0] || null;
         s.kbDocs = kbRows || [];   // cached for the whole call — kbBlock() searches this in-memory, no per-tick DB hit
 
