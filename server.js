@@ -596,13 +596,15 @@ async function coach(s) {
       .map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text)
       .join('\n');
     const systemPrompt = buildSystemPrompt(s);
-    // Repetition guard: replaying real calls showed 55–84% of cards opening with the same
-    // phrase ("Totally fair…") and recycling the same move. Feeding the last few fired lines
-    // back in is what stops the model settling into one groove for a whole call.
-    const justSaid = s.cards.slice(-4).map((c, i) => (i + 1) + '. ' + c.line).join('\n');
+    // Repetition guard. Only the OPENERS go in the per-turn prompt — the full instruction
+    // lives in FORMAT_RULES, which sits in the cached system prefix and is therefore free to
+    // repeat. Sending whole prior lines plus a restated instruction every turn cost ~160
+    // tokens and measured +320ms on the replay harness, which is real money on a live call.
+    const usedOpeners = s.cards.slice(-3)
+      .map(c => String(c.line || '').replace(/[|↗↘*\[\]]/g, ' ').trim().split(/\s+/).slice(0, 5).join(' '))
+      .filter(Boolean);
     const userPrompt = 'LIVE TRANSCRIPT (most recent last):\n' + recent +
-      (justSaid ? '\n\nCARDS YOU ALREADY GAVE THIS CALL (most recent last):\n' + justSaid +
-        '\n\nDo NOT reuse the opening words or the same move from those. Open differently and pick a different technique unless the moment genuinely demands a repeat.' : '') +
+      (usedOpeners.length ? '\n\nOPENERS ALREADY USED (do not reuse): ' + usedOpeners.map(o => '"' + o + '…"').join(' / ') : '') +
       '\n\nDecide now.';
     // guard inputs: every number the line is ALLOWED to say must come from here
     const guardSources = (s.productContent || '') + '\n' + (s.priorMemoryMd || '') + '\n' + recent;
