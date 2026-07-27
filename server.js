@@ -604,6 +604,32 @@ function safePartial(partialLine, neverSay) {
 const NUM_WORD_LIST = ['thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety', 'hundred', 'thousand', 'seven', 'eight', 'nine'];
 // === line-guard end ===
 
+// Kill the repeated acknowledgement ("Totally fair" six times in a row).
+//
+// This cannot be fixed by instructing the model. Each coach call is stateless — it is given the
+// transcript, not its own previous card — so "don't reuse your opener" is an instruction with
+// nothing to check against. Feeding it the prior openers works, but costs tokens on the live path
+// every single turn.
+//
+// So do it deterministically after the fact: if this card opens with the same short stock
+// acknowledgement as the last one, cut the acknowledgement and let the line lead with the question.
+// Zero tokens, zero added latency, and the playbook already sanctions going straight in with no
+// preamble. Only a SHORT opener is stripped — a substantive first clause is left alone.
+const openerHead = t => String(t || '').split('||')[0]
+  .replace(/[^a-z ]/gi, ' ').trim().toLowerCase().replace(/\s+/g, ' ');
+
+function repeatsOpener(line, prevLine) {
+  const a = openerHead(line);
+  return !!a && !!prevLine && a === openerHead(prevLine) && a.split(' ').length <= 4;
+}
+
+function stripRepeatOpener(line, prevLine) {
+  if (!repeatsOpener(line, prevLine)) return line;
+  const cut = String(line).replace(/^[^|]*\|\|+\s*/, '').trim();
+  if (!cut || cut === String(line).trim()) return line;         // no pause marker to cut at yet
+  return cut.replace(/^([a-z])/, (m) => m.toUpperCase());       // re-capitalise the new opening
+}
+
 async function coach(s) {
   if (!s.turns.length) return;
   // ONE card per thing the prospect actually said.
@@ -622,6 +648,7 @@ async function coach(s) {
   const ac = new AbortController();
   s.coachAbort = ac;
   const stale = () => gen !== s.coachGen;
+  const prevLine = (s.cards[s.cards.length - 1] || {}).line || '';
   try {
     const recent = s.turns.slice(-24)
       .map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text)
@@ -677,7 +704,10 @@ async function coach(s) {
       // up to the safe prefix — the sentence streams, the unvalidated number does not. The
       // validated final replaces it a moment later.
       if (p.decision === 'FIRE' && p.tone && p.line !== null && !repTalking(s)) {
-        const safe = safePartial(p.line, neverSay);
+        let safe = stripRepeatOpener(safePartial(p.line, neverSay), prevLine);
+        // if all we have so far IS the doomed repeat, show nothing rather than flash a phrase
+        // that is about to be deleted
+        if (repeatsOpener(safe, prevLine)) safe = '';
         if (safe && safe !== lastSentLine) {
           lastSentLine = safe;
           broadcast(s, { type: 'card-stream', tone: p.tone, line: safe, why: '', technique: '', done: false });
@@ -725,7 +755,8 @@ async function coach(s) {
         }
       }
       const card = {
-        type: 'card-stream', tone: p.tone || '', line: p.line, why: p.why || '', technique: p.tech || '',
+        type: 'card-stream', tone: p.tone || '', line: stripRepeatOpener(p.line, prevLine),
+        why: p.why || '', technique: p.tech || '',
         confidence: /low/i.test(p.conf || '') ? 'low' : 'high', done: true
       };
       showCard(s, card, Date.now());   // holds until the closer stops talking
@@ -1902,5 +1933,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
+  stripRepeatOpener, repeatsOpener,
   deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };

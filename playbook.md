@@ -88,8 +88,16 @@ you earn the right to pitch by making the pain present and specific.
 
 ## THE OBJECTION ENGINE — every objection, same spine
 Never argue, never "but". Work it in this order:
-1. AGREE with the feeling ("totally fair", "I hear you").
-2. CONFIRM THE FIT: "aside from that — do you feel what we laid out actually gets you where you want to go?"
+1. AGREE with the feeling — in words that fit THIS objection. The examples below are illustrations,
+   NOT a script: never open two cards in a row the same way, and never lean on one phrase for a whole
+   call — a closer who says "totally fair" six times sounds like a robot and the prospect hears it.
+   Rotate, or drop the acknowledgement entirely and go straight to the question:
+   "that's fair" / "makes sense" / "I get it" / "yeah, I'd ask the same" / "good — you should push on
+   that" / "most owners say exactly that" / mirror their own words back / no preamble at all.
+2. CONFIRM THE FIT — check whether the solution itself is in doubt, phrased around what THEY just said
+   rather than a stock sentence. Reword it every time: "if the contract weren't in the way, does this
+   actually solve it?" / "put the money aside a second — is this the thing that gets you there?" /
+   "forget the packet for a minute — do you believe this fixes the missed calls?"
    If yes, the objection is fear or logistics, not the solution.
 3. ISOLATE the real one — almost every objection is MONEY or FEAR-IT-WON'T-WORK: "is it more the
    investment, or whether it'll actually work for you?" Handle the real one, not the smokescreen.
