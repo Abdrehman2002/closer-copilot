@@ -574,16 +574,37 @@ function validateLine(line, sources, neverSay) {
 
 // partial lines get held back from the HUD the moment they start talking numbers/money,
 // so a bad price can never even flash on screen before validation completes
-function partialNeedsHold(partialLine, neverSay) {
+// The longest prefix of a streaming line that is safe to show BEFORE fact-validation:
+// everything up to the first number or never-say phrase. Previously any line merely
+// *mentioning* money ("price", "cost", "monthly", "setup") had its whole preview suppressed —
+// but those words carry no risk without a number attached, and validateLine only ever rejects
+// numbers in a money context. That over-blocking meant the closer saw nothing at all on
+// exactly the price objections where the line matters most. Now the number is what gets
+// withheld, not the sentence around it.
+const SPOKEN_NUM = /\d|\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)\b/i;
+
+function safePartial(partialLine, neverSay) {
   const t = String(partialLine || '');
-  if (/\d/.test(t) || MONEY_CONTEXT.test(t)) return true;
-  if (/(hundred|thousand|ninety|eighty|seventy|sixty|fifty|forty|thirty|twenty)/i.test(t)) return true;
+  let cut = t.length;
+  const m = t.match(SPOKEN_NUM);
+  if (m) cut = Math.min(cut, m.index);
   for (const phrase of String(neverSay || '').split(/[,/;\n]+/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2)) {
     const firstWord = phrase.split(/\s+/)[0];
-    if (firstWord.length >= 4 && t.toLowerCase().includes(firstWord)) return true;
+    if (firstWord.length >= 4) {
+      const i = t.toLowerCase().indexOf(firstWord);
+      if (i >= 0) cut = Math.min(cut, i);
+    }
   }
-  return false;
+  let out = cut >= t.length ? t : t.slice(0, cut).replace(/\s+\S*$/, '').trimEnd();
+  // A trailing fragment can be a numeral still mid-stream ("fourte" → "fourteen"), which the
+  // \b-anchored match above cannot see yet. Drop it rather than flash a partial price.
+  const frag = (out.match(/(\S+)$/) || [])[1];
+  if (frag && frag.length >= 4 && NUM_WORD_LIST.some(w => w.startsWith(frag.toLowerCase()) && w !== frag.toLowerCase())) {
+    out = out.replace(/\s*\S+$/, '').trimEnd();
+  }
+  return out;
 }
+const NUM_WORD_LIST = ['thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety', 'hundred', 'thousand', 'seven', 'eight', 'nine'];
 // === line-guard end ===
 
 async function coach(s) {
@@ -629,7 +650,7 @@ async function coach(s) {
 
     const reader = r.body.getReader();
     const dec = new TextDecoder();
-    let sse = '', raw = '', lastSentLine = null, partialHeld = false, streamUsage = null;
+    let sse = '', raw = '', lastSentLine = null, streamUsage = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -649,14 +670,15 @@ async function coach(s) {
         } catch {}
       }
       const p = parseCoach(raw);
-      // stream partial words to the HUD only while the closer is NOT mid-sentence — and
-      // freeze the partial stream the moment the line starts talking numbers/money, so an
-      // unvalidated price can never flash on screen (the validated final replaces it)
-      if (p.decision === 'FIRE' && p.tone && p.line !== null && p.line !== lastSentLine && !repTalking(s)) {
-        if (partialNeedsHold(p.line, neverSay)) { partialHeld = true; continue; }
-        if (partialHeld) continue;
-        lastSentLine = p.line;
-        broadcast(s, { type: 'card-stream', tone: p.tone, line: p.line, why: '', technique: '', done: false });
+      // Stream partial words to the HUD only while the closer is NOT mid-sentence, and only
+      // up to the safe prefix — the sentence streams, the unvalidated number does not. The
+      // validated final replaces it a moment later.
+      if (p.decision === 'FIRE' && p.tone && p.line !== null && !repTalking(s)) {
+        const safe = safePartial(p.line, neverSay);
+        if (safe && safe !== lastSentLine) {
+          lastSentLine = safe;
+          broadcast(s, { type: 'card-stream', tone: p.tone, line: safe, why: '', technique: '', done: false });
+        }
       }
     }
 
