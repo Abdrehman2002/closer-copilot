@@ -101,6 +101,10 @@ must be precise enough to perform without thinking:
 - If the right move is silence: LINE: … and TONE: SILENT — go quiet ~3 seconds, let them fill it
 - If DEAL MEMORY is present, USE it: reference what THIS prospect said in previous calls
   (their objections, commitments, stakeholders, stated pain) whenever it sharpens the move.
+- VARY YOUR OPENING. Never start two cards in a row the same way, and do not lean on one stock
+  phrase ("Totally fair", "I hear you") for a whole call — a closer repeating himself six times
+  sounds scripted and the prospect notices. Acknowledge in a fresh way each time, or skip the
+  acknowledgement and go straight to the question.
 - FACTS ARE SACRED: never state a price, discount, guarantee, statistic, or feature that is not
   explicitly in the playbook, the Client Brain, or this call's transcript. If you don't know the
   number, ask a question instead of guessing. Invented facts get the closer caught lying.
@@ -313,22 +317,35 @@ function closerProfileBlock(profile) {
 // AI) AND the instant overlay lane (the live "what's happening" signal shown to the closer
 // while the prospect is still talking, before the considered AI line lands). Order matters —
 // first match wins, same precedence as before (price → competitor → stall → buying → objection).
+// Ordered most-specific first (first match wins). Patterns are tuned against real call
+// transcripts, not idealised written English — e.g. "pricing" needs a stem match because
+// \bprice\b never fires on it, and prospects say "how fast", not "how soon".
 const MOMENTS = [
-  { re: /\$|\bprice\b|\bcost\b|expensive|afford|budget|how much/, tag: 'PRICE',
-    read: 'PRICE moment — price was just said or asked about.',
-    hint: 'Price is live — anchor the value before you defend the number.' },
-  { re: /already (have|use|got)|competitor|cheaper|other (company|option|guy)/, tag: 'COMPETITOR',
+  // Before PRICE: "at that rate, I could just hire someone" is a DIY objection, not a price one.
+  { re: /hire (someone|somebody|a person|a guy|my own)|in.?house|do it (myself|ourselves|in)|internally|my own (team|person|guy|staff)|full.?time (person|hire|employee)/, tag: 'DIY',
+    read: 'DIY / IN-HOUSE — they think they can just hire or do it themselves.',
+    hint: 'They\'re pricing a hire — compare the true cost: salary, training, turnover, sick days.' },
+  { re: /lock(ed|ing)? in|locked into|\bcontract\b|long.?term commit|tied (down|in)|cancel any ?time|month.?to.?month/, tag: 'CONTRACT',
+    read: 'CONTRACT / COMMITMENT fear — they don\'t want to be tied down.',
+    hint: 'Commitment fear — lead with how easy it is to leave, not how good it is to stay.' },
+  { re: /already (have|use|using|got|pay|paying)|competitor|cheaper|other (company|option|guy)|buddy said|someone else|saw (something|one)/, tag: 'COMPETITOR',
     read: 'COMPETITOR mention — comparing to another option.',
     hint: 'They\'re comparing — get specific on the one thing only you do.' },
-  { re: /not sure|don'?t know|maybe|think (it |about )?over|talk to|run it by|call.*back|not (a )?good time|another time/, tag: 'STALL',
-    read: 'STALL — vague deferral, needs the real objection isolated.',
-    hint: 'That\'s a stall — isolate the real objection, don\'t accept the deferral.' },
-  { re: /how (do|does|would|soon)|when can|what.*next|sounds good|i'?m in|let'?s do|get started|sign (me )?up/, tag: 'BUYING',
+  { re: /\$|\bpric|\bcost|expensive|afford|budget|how much|\brate\b|discount|too high/, tag: 'PRICE',
+    read: 'PRICE moment — price was just said or asked about.',
+    hint: 'Price is live — anchor the value before you defend the number.' },
+  { re: /\brobot|\bscam\b|don'?t trust|got burned|been burned|messes? up|screws? up|what if it|my name on|reputation|guarantee/, tag: 'TRUST',
+    read: 'TRUST / RISK — they fear it going wrong and it landing on them.',
+    hint: 'This is risk, not price — reverse it and make the downside yours, not theirs.' },
+  { re: /how (fast|soon|quick|long|do|does|would)|when can|what.*next|what (do )?we (need|gotta)|sounds good|i'?m in|let'?s do|get started|sign (me )?up|say i did/, tag: 'BUYING',
     read: 'BUYING SIGNAL — lean into the close.',
     hint: 'Buying signal — stop selling and ask for the next step.' },
+  { re: /think (it |about )?(over|about)|let me think|run it by|talk to (my|the)|get back to you|send (me|over)|email me|\bpacket\b|proposal|in writing|more info|not (a )?good time|another time|call me back|circle back|not sure|don'?t know/, tag: 'STALL',
+    read: 'STALL — vague deferral, needs the real objection isolated.',
+    hint: 'That\'s a stall — isolate the real objection, don\'t accept the deferral.' },
   // NOTE: no bare "no" here — it fired on "no problem" / "no, sounds great" and mis-tagged
   // positives. Match explicit objection language instead.
-  { re: /not interested|\bworried\b|\bconcern|\bhowever\b|\bdoubt|\brobot|\bscam\b|don'?t trust|too expensive|too much money|not a fit|not for us|\bhesitant\b|\bskeptic/, tag: 'OBJECTION',
+  { re: /not interested|\bworried\b|\bconcern|\bdoubt|not a fit|not for us|\bhesitant\b|\bskeptic|don'?t (see|need)/, tag: 'OBJECTION',
     read: 'OBJECTION — a concern was just raised.',
     hint: 'Concern raised — acknowledge it first, then reframe.' },
 ];
@@ -579,7 +596,14 @@ async function coach(s) {
       .map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text)
       .join('\n');
     const systemPrompt = buildSystemPrompt(s);
-    const userPrompt = 'LIVE TRANSCRIPT (most recent last):\n' + recent + '\n\nDecide now.';
+    // Repetition guard: replaying real calls showed 55–84% of cards opening with the same
+    // phrase ("Totally fair…") and recycling the same move. Feeding the last few fired lines
+    // back in is what stops the model settling into one groove for a whole call.
+    const justSaid = s.cards.slice(-4).map((c, i) => (i + 1) + '. ' + c.line).join('\n');
+    const userPrompt = 'LIVE TRANSCRIPT (most recent last):\n' + recent +
+      (justSaid ? '\n\nCARDS YOU ALREADY GAVE THIS CALL (most recent last):\n' + justSaid +
+        '\n\nDo NOT reuse the opening words or the same move from those. Open differently and pick a different technique unless the moment genuinely demands a repeat.' : '') +
+      '\n\nDecide now.';
     // guard inputs: every number the line is ALLOWED to say must come from here
     const guardSources = (s.productContent || '') + '\n' + (s.priorMemoryMd || '') + '\n' + recent;
     const neverSay = (s.closerProfile && s.closerProfile.never_say) || '';
