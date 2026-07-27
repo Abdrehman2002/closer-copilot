@@ -414,10 +414,12 @@ function showCard(s, card, since) {
     clearTimeout(s.cardFlushTimer); s.pendingCard = null;
     s.lastCardAt = Date.now();
     const id = s.cards.length;   // stable index into s.cards — the client rates a card by this id
-    s.cards.push({ id, at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique, confidence: card.confidence || 'high', used: null });
-    broadcast(s, { ...card, id });
-    // measured latency: prospect stopped talking → card on screen. Real number, not a vibe.
+    // measured latency: prospect stopped talking → card on screen. Stored ON THE CARD so it
+    // persists to the DB with the call; the call-log file is ephemeral on Railway and is wiped
+    // every redeploy, so anything only logged there can never be analysed later.
     const latencyMs = s.lastProspectFinalAt ? Date.now() - s.lastProspectFinalAt : null;
+    s.cards.push({ id, at: Date.now() - (s.callStartAt || Date.now()), tone: card.tone, line: card.line, why: card.why, technique: card.technique, confidence: card.confidence || 'high', latencyMs, used: null });
+    broadcast(s, { ...card, id });
     logEvent(s, { type: 'card', id, tone: card.tone, line: card.line, why: card.why, technique: card.technique, latencyMs });
     console.log('[coach]', s.userId.slice(0, 8), latencyMs != null ? '(' + latencyMs + 'ms)' : '', 'FIRE:', card.line);
     return;
@@ -1542,8 +1544,20 @@ const server = http.createServer(async (req, res) => {
 
       // ---- live-call card feedback (line-acceptance metric) ----
       if (urlPath === '/api/card-feedback' && req.method === 'POST') {
-        const { id, used } = await readBody(req);
-        const card = s.cards.find(c => c.id === id);
+        const { id, used, callId } = await readBody(req);
+        // Rating a SAVED call (from the call review page). Without this, cards could only be
+        // rated mid-call — exactly when the closer is busy talking — which is why almost
+        // nothing ever got rated. This is the only ground-truth signal the product collects.
+        if (callId) {
+          const rows = await sbRest('calls?id=eq.' + callId + '&select=cards', jwt);
+          const cards = (rows[0] && rows[0].cards) || [];
+          const card = cards.find(c => c.id === id);
+          if (!card) return sendJson(res, { error: 'card not found' }, 404);
+          card.used = !!used;
+          await sbRest('calls?id=eq.' + callId, jwt, { method: 'PATCH', body: { cards } });
+          return sendJson(res, { ok: true });
+        }
+        const card = s.cards.find(c => c.id === id);   // live call, still in session memory
         if (card) card.used = !!used;
         return sendJson(res, { ok: true });
       }
@@ -1824,7 +1838,17 @@ wss.on('connection', async (ws, req) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log('closer-copilot running → http://localhost:' + PORT + ' (host ' + HOST + ')');
-  console.log('live model: ' + LIVE_MODEL + ' | analysis model: ' + ANALYSIS_MODEL);
-});
+// Only listen when run directly. Required as a module (e.g. scripts/replay.js) it exports the
+// coaching internals instead, so offline tooling exercises the REAL shipped prompt and guard
+// rather than a copy that silently drifts out of sync.
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    console.log('closer-copilot running → http://localhost:' + PORT + ' (host ' + HOST + ')');
+    console.log('live model: ' + LIVE_MODEL + ' | analysis model: ' + ANALYSIS_MODEL);
+  });
+}
+
+module.exports = {
+  buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment,
+  deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
+};

@@ -14,6 +14,13 @@ export default function CallDetail() {
   const [call, setCall] = useState<Call | null | undefined>(undefined)
   useEffect(() => { api<{ call: Call | null }>(`/api/calls/${id}`).then((r) => setCall(r.call)) }, [id])
 
+  // Rate a card after the call. Optimistic so the thumb responds instantly, then persisted
+  // against the stored call record (not the live session, which is long gone by now).
+  const rateCard = (cardId: number, used: boolean) => {
+    setCall((prev) => prev ? { ...prev, cards: (prev.cards || []).map((c) => c.id === cardId ? { ...c, used } : c) } : prev)
+    api('/api/card-feedback', { id: cardId, used, callId: id })
+  }
+
   if (call === undefined) return <DetailSkeleton />
   if (!call) return <div className="p-8 text-sm text-muted-foreground">Not found.</div>
 
@@ -66,9 +73,16 @@ export default function CallDetail() {
           </div>
         </section>
         <section>
-          <h3 className="mb-3 text-sm font-semibold">Coaching that fired</h3>
+          <div className="mb-3 flex items-baseline gap-2">
+            <h3 className="text-sm font-semibold">Coaching that fired</h3>
+            {!!(call.cards || []).length && (
+              <span className="text-[11.5px] text-muted-foreground">did you use it? rating these is what teaches the coach</span>
+            )}
+          </div>
           <div className="flex max-h-[62vh] flex-col gap-3 overflow-y-auto pr-1">
-            {(call.cards || []).map((c, i) => <CoachingCard key={i} {...c} />)}
+            {(call.cards || []).map((c, i) => (
+              <CoachingCard key={i} {...c} onRate={rateCard} />
+            ))}
             {!(call.cards || []).length && <div className="text-sm text-muted-foreground">No cards fired.</div>}
           </div>
         </section>
