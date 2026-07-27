@@ -423,7 +423,7 @@ const MAX_HOLD_MS = 6000;   // never hold a card longer than this
 function repTalking(s) { return Date.now() - s.meLastAt < REP_QUIET_MS; }
 
 // show a finished card, but WAIT until the closer isn't mid-sentence (fixes card-stacking)
-function showCard(s, card, since) {
+function showCard(s, card, since, onShown) {
   if (!repTalking(s) || Date.now() - since > MAX_HOLD_MS) {
     clearTimeout(s.cardFlushTimer); s.pendingCard = null;
     s.lastCardAt = Date.now();
@@ -436,11 +436,12 @@ function showCard(s, card, since) {
     broadcast(s, { ...card, id });
     logEvent(s, { type: 'card', id, tone: card.tone, line: card.line, why: card.why, technique: card.technique, latencyMs });
     console.log('[coach]', s.userId.slice(0, 8), latencyMs != null ? '(' + latencyMs + 'ms)' : '', 'FIRE:', card.line);
+    if (onShown) onShown(id);
     return;
   }
-  s.pendingCard = { card, since };
+  s.pendingCard = { card, since, onShown };
   clearTimeout(s.cardFlushTimer);
-  s.cardFlushTimer = setTimeout(() => { const pc = s.pendingCard; if (pc) showCard(s, pc.card, pc.since); }, 150);
+  s.cardFlushTimer = setTimeout(() => { const pc = s.pendingCard; if (pc) showCard(s, pc.card, pc.since, pc.onShown); }, 150);
 }
 
 function parseCoach(raw) {
@@ -630,6 +631,10 @@ function stripRepeatOpener(line, prevLine) {
   return cut.replace(/^([a-z])/, (m) => m.toUpperCase());       // re-capitalise the new opening
 }
 
+// The model emits DECISION, TONE, LINE, WHY, TECH, CONF in order, so LINE is finished the instant
+// the next field's header appears.
+const LINE_COMPLETE = /^LINE:.*$\r?\n+^(?:WHY|TECH|CONF):/m;
+
 async function coach(s) {
   if (!s.turns.length) return;
   // ONE card per thing the prospect actually said.
@@ -681,10 +686,8 @@ async function coach(s) {
     const dec = new TextDecoder();
     let sse = '', raw = '', lastSentLine = null, streamUsage = null;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (stale()) return;   // the prospect moved on — this answer is about to be wrong
+    // pull whatever has arrived into `raw`, and catch the usage chunk on the way past
+    const consume = (value) => {
       sse += dec.decode(value, { stream: true });
       let nl;
       while ((nl = sse.indexOf('\n')) >= 0) {
@@ -699,6 +702,18 @@ async function coach(s) {
           raw += (d.choices && d.choices[0] && d.choices[0].delta && d.choices[0].delta.content) || '';
         } catch {}
       }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (stale()) return;   // the prospect moved on — this answer is about to be wrong
+      consume(value);
+      // The closer only has to say the LINE. WHY/TECH/CONF are footnotes on the card and cost a
+      // measured ~230ms more to generate, so stop waiting the moment the next field starts: the
+      // line is complete, fact-check it and put it on screen. The footnotes are drained below and
+      // patched in a beat later, by which time they have been read anyway.
+      if (LINE_COMPLETE.test(raw)) break;
       const p = parseCoach(raw);
       // Stream partial words to the HUD only while the closer is NOT mid-sentence, and only
       // up to the safe prefix — the sentence streams, the unvalidated number does not. The
@@ -715,16 +730,25 @@ async function coach(s) {
       }
     }
 
-    logUsage(s.jwt, s.userId, s.activeDealId, 'live', LIVE_MODEL, streamUsage);
+    // Finish reading in the background. The footnotes and the token-usage chunk still arrive —
+    // they just no longer make the closer wait for them.
+    const rest = (async () => {
+      try {
+        while (true) { const { done, value } = await reader.read(); if (done) break; consume(value); }
+      } catch { /* aborted or dropped — usage below is simply skipped */ }
+      logUsage(s.jwt, s.userId, s.activeDealId, 'live', LIVE_MODEL, streamUsage);
+    })();
     if (stale()) return;
 
     let p = parseCoach(raw);
+    let retried = false;
     if (p.decision === 'FIRE' && p.line) {
       // fact-check the finished line; one corrective retry, then withhold
       let v = validateLine(p.line, guardSources, neverSay);
       if (!v.ok) {
         console.log('[guard]', s.userId.slice(0, 8), 'REJECTED:', v.issue, '|', p.line);
         logEvent(s, { type: 'guard-reject', issue: v.issue, line: p.line });
+        retried = true;   // the retry response carries its own footnotes — don't patch over them
         const r2 = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
@@ -759,7 +783,17 @@ async function coach(s) {
         why: p.why || '', technique: p.tech || '',
         confidence: /low/i.test(p.conf || '') ? 'low' : 'high', done: true
       };
-      showCard(s, card, Date.now());   // holds until the closer stops talking
+      showCard(s, card, Date.now(), (id) => {   // holds until the closer stops talking
+        if (retried) return;   // the retry already produced its own why/technique
+        rest.then(() => {
+          const f = parseCoach(raw);
+          if (!f.why && !f.tech) return;
+          const patch = { why: f.why || '', technique: f.tech || '', confidence: /low/i.test(f.conf || '') ? 'low' : 'high' };
+          const stored = s.cards.find(c => c.id === id);
+          if (stored) Object.assign(stored, patch);
+          broadcast(s, { type: 'card-meta', id, ...patch });
+        });
+      });
     } else {
       if (lastSentLine !== null) broadcast(s, { type: 'card-stream', tone: '', line: lastSentLine, why: '', technique: '', done: true });
       broadcast(s, { type: 'status', msg: 'coach: watching — no move needed' });

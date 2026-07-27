@@ -162,4 +162,5 @@ export type LiveEvent =
   | { type: 'transcript'; ch: 'me' | 'prospect'; text: string }
   | { type: 'interim'; ch: 'me' | 'prospect'; text: string }
   | { type: 'card-stream'; id?: number; tone: string; line: string; why: string; technique: string; done: boolean }
+  | { type: 'card-meta'; id: number; why: string; technique: string; confidence: 'low' | 'high' }
   | { type: 'status'; msg: string }

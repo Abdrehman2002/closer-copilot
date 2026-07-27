@@ -67,6 +67,11 @@ async function connectEvents() {
     if (d.type === 'transcript') pushTurn(d.ch, d.text)
     else if (d.type === 'interim') { state.interim = (d.ch === 'me' ? 'ME: ' : 'PROSPECT: ') + d.text; emit() }
     else if (d.type === 'card-stream') pushCard(d)
+    // the card ships as soon as the LINE is ready; its why/technique land a beat later
+    else if (d.type === 'card-meta') {
+      state.cards = state.cards.map((c) => c.id === d.id ? { ...c, why: d.why, technique: d.technique, confidence: d.confidence } : c)
+      emit()
+    }
     else if (d.type === 'signal') { state.signal = d.tag ? { tag: d.tag, hint: d.hint } : null; emit(); updatePipSignal() }
     else if (d.type === 'discovery') { state.discovery = d.pillars; emit() }
     else if (d.type === 'status') { state.status = d.msg; emit() }
