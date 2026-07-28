@@ -545,23 +545,46 @@ const PER_MONTH = { day: 22, week: 4, month: 1 };   // working days; weeks round
 // Pull what the prospect actually said about volume and job value. Only their own words — never
 // the closer's, or we would be quoting our own pitch back as if it were their business.
 function extractFigures(turns) {
-  const said = (turns || []).filter(t => t.ch === 'prospect').map(t => t.text).join(' . ');
+  const list = turns || [];
   const out = {};
 
-  // "forty, forty-five calls a week" / "about 30 calls a day" — take the LAST number before the
-  // unit, so a corrected range ("forty, forty-five") lands on what they settled on.
-  const vol = said.match(new RegExp('([\\s\\S]{0,45})\\b(?:calls?|leads?|inquiries)\\b[^.]{0,12}?\\b(day|week|month)\\b', 'i'));
-  if (vol) {
-    const ns = numbersInOrder(vol[1]);
-    const n = ns.length ? ns[ns.length - 1] : null;
-    if (n && n > 0 && n < 10000) { out.calls = n; out.period = vol[2].toLowerCase(); }
-  }
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].ch !== 'prospect') continue;
+    const said = list[i].text || '';
+    // People answer "how many calls a week?" with "probably forty to forty-five" — the unit lives
+    // in OUR question, not their reply. Read the unit from either, but only ever take the NUMBER
+    // from what they said, or we end up quoting our own question back as their business.
+    const asked = (i > 0 && list[i - 1].ch === 'me') ? (list[i - 1].text || '') : '';
 
-  // "nine grand a job" / "$9,000 replacement" / "average job is about eight thousand".
-  // The amount sits either side of the word, so search a window around each occurrence.
-  for (const m of said.matchAll(/\b(?:job|ticket|replacement|install(?:ation)?|system|unit|roof)\b/gi)) {
-    const v = moneyIn(said.slice(Math.max(0, m.index - 45), m.index + m[0].length + 45));
-    if (v) { out.ticket = v; break; }
+    if (!out.calls) {
+      const inAnswer = said.match(new RegExp('([\\s\\S]{0,45})\\b(?:calls?|leads?|inquiries)\\b[^.]{0,12}?\\b(day|week|month)\\b', 'i'));
+      if (inAnswer) {
+        const ns = numbersInOrder(inAnswer[1]);
+        const n = ns.length ? ns[ns.length - 1] : null;   // "forty, forty-five" -> what they settled on
+        if (n > 0 && n < 10000) { out.calls = n; out.period = inAnswer[2].toLowerCase(); }
+      } else {
+        // wide enough for a natural question — "how many calls come in on a typical week?" puts
+        // 21 characters between the two words we need
+        const inQuestion = asked.match(/\b(?:calls?|leads?|inquiries)\b[^.?]{0,32}?\b(day|week|month)\b/i);
+        if (inQuestion) {
+          // a bare answer: take their opening run of numbers ("40 to 45", "thirty or forty") and
+          // use the top of it, then stop — anything later in the turn is a different subject
+          const lead = said.match(/[^.]*?\d[\d,]*(?:\s*(?:to|or|-|–|,|and)\s*\d[\d,]*)*/i)
+                    || said.match(new RegExp('[^.]*?(?:' + NUM_W + ')(?:[\\s-]+(?:to|or|and|' + NUM_W + '))*', 'i'));
+          const ns = lead ? numbersInOrder(lead[0]).filter(n => n > 0 && n < 10000) : [];
+          if (ns.length) { out.calls = Math.max(...ns); out.period = inQuestion[1].toLowerCase(); }
+        }
+      }
+    }
+
+    // "nine grand a job" / "$9,000 replacement" / "average job is about eight thousand".
+    // The amount sits either side of the word, so search a window around each occurrence.
+    if (!out.ticket) {
+      for (const m of said.matchAll(/\b(?:job|ticket|replacement|install(?:ation)?|system|unit|roof)\b/gi)) {
+        const v = moneyIn(said.slice(Math.max(0, m.index - 45), m.index + m[0].length + 45));
+        if (v) { out.ticket = v; break; }
+      }
+    }
   }
   return out;
 }
@@ -575,7 +598,14 @@ function moneyIn(seg) {
     if (v >= 500 && v <= 100000) return v;
   }
   const ns = numbersInOrder(seg).filter(x => x >= 1000 && x <= 100000);
-  return ns.length ? ns[ns.length - 1] : null;
+  if (ns.length) return ns[ns.length - 1];
+  // "average job is about nine grand" often lands from the transcriber as "$9" — the word gets
+  // eaten but the dollar sign survives. Nobody quotes a nine dollar HVAC job, so a dollar amount
+  // under a hundred next to a job word means thousands. Requires the "$" so that a bare small
+  // number ("me and two techs") can never be mistaken for a price.
+  const bare = seg.match(/\$\s*(\d{1,2})(?!\d|[.,]\d)/);
+  if (bare) { const v = parseInt(bare[1], 10) * 1000; if (v >= 1000 && v <= 100000) return v; }
+  return null;
 }
 
 // Turn the figures into plain sourced facts. Returns '' when they have not given us enough —
