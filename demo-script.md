@@ -43,12 +43,21 @@ composure, and it's the whole point of the video.
 
 > **Dave:** "Probably forty, forty-five calls a week. More in the summer."
 
-*(pause — this number matters, see below)*
+*(pause)*
 
-**Why:** the missed-call math is the strongest moment in the whole demo, and it only works if
-you say a real number. Once you say "forty-five calls a week", that figure is sourced from the
-transcript, so the coach is allowed to do the arithmetic live — 27% missed, two real jobs at
-their ticket. If you never give a number, it can only speak in generalities.
+> **Dave:** "Average job is about nine grand, give or take."
+
+*(pause — these two numbers matter more than anything else you say)*
+
+**Why:** these two figures unlock the strongest moment in the demo. The server does the
+arithmetic the moment you say them and hands the coach the result, so the card comes back with
+the loss already calculated:
+
+> *"Forty-five calls a week — at nine grand a job, even two missed calls closing means
+> **eighteen thousand** walking out."*
+
+Skip either number and the coach can only speak in generalities. Give both and it does the math
+on camera. Say them as separate sentences with a pause between.
 
 ---
 
@@ -83,7 +92,7 @@ fear, and the coach should isolate that rather than defend the software. Good be
 
 > **Dave:** "Alright. So how much is this even gonna run me?"
 
-*(pause — the closer gives $4,000 setup + $797/mo)*
+*(pause — the closer gives $4,000 setup + $797/mo; "four thousand one time" is fine to say now)*
 
 > **Dave:** "Four grand? That's a lot right now."
 

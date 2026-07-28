@@ -175,7 +175,7 @@ function getSession(userId) {
       activeDealId: null, activeProductId: null, activeProductName: '',
       productContent: '', memory: '', dealState: null, dealName: '', dealCompany: '',
       closerProfile: null, callGoal: '', kbDocs: [],
-      lastCardAt: 0, coachGen: 0, coachAbort: null, coachTimer: null,
+      lastCardAt: 0, coachGen: 0, coachAbort: null, coachTimer: null, figuresMd: '',
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
       lastSignalTag: null, lastProspectFinalAt: 0,
       discovery: null, lastDiscoveryAt: 0, discoveryBusy: false,
@@ -408,6 +408,7 @@ function buildSystemPrompt(s) {
     (s.productContent || '(no product knowledge provided)') + '\n\n' +
     FORMAT_RULES +
     (s.memory || '') +
+    (s.figuresMd || '') +
     kbBlock(s) +
     (s.callGoal && GOALS[s.callGoal] ? '\nREMEMBER: serve the meeting goal (' + GOALS[s.callGoal].label + ') — not the default close drive.' : '');
 }
@@ -510,6 +511,89 @@ function spokenRunValues(words) {
   if (acc != null) nums.push(acc);
   if (nums.length === 2) vals.add(nums[0] * 100 + nums[1]);
   return vals;
+}
+
+// ---- THEIR NUMBERS: do the arithmetic here, not in the model ----
+//
+// The figures a prospect says out loud are the most persuasive material on a call, and they were
+// going almost unused: 7% of 134 stored cards contained any number at all. Two reasons, and code
+// fixes both:
+//   1. the model is bad at this. Asked to do it, it read "forty-five calls a WEEK" as forty-five
+//      a MONTH — a wrong number said with confidence to a buyer is worse than no number.
+//   2. the fact-guard blocks any figure it cannot source, and a derived one never appears in the
+//      product file, so every line doing the math was withheld at the moment it mattered.
+// Computing it here makes it correct AND makes it a fact the guard will pass.
+//
+// Deliberately conservative — the product file's own example takes only TWO missed calls as real
+// jobs, not all of them. Overstating is the same failure as inventing.
+const NUM_W = 'seventeen|thirteen|fourteen|eighteen|nineteen|sixteen|fifteen|eleven|twelve|hundred|thousand|seventy|eighty|ninety|twenty|thirty|forty|fifty|sixty|three|seven|eight|four|five|nine|zero|one|two|six|ten';
+
+// numeric values in the order they appear (digits and spoken runs alike)
+function numbersInOrder(text) {
+  const out = [];
+  const re = new RegExp('(\\d[\\d,]*(?:\\.\\d+)?)|\\b((?:(?:' + NUM_W + ')[\\s-]+)*(?:' + NUM_W + '))\\b', 'gi');
+  for (const m of String(text || '').matchAll(re)) {
+    if (m[1]) { const v = parseFloat(m[1].replace(/,/g, '')); if (!isNaN(v)) out.push(v); }
+    else if (m[2]) { const vals = [...spokenRunValues(m[2].split(/[\s-]+/))]; if (vals.length) out.push(Math.max(...vals)); }
+  }
+  return out;
+}
+
+const PER_MONTH = { day: 22, week: 4, month: 1 };   // working days; weeks rounded DOWN from 4.3
+
+// Pull what the prospect actually said about volume and job value. Only their own words — never
+// the closer's, or we would be quoting our own pitch back as if it were their business.
+function extractFigures(turns) {
+  const said = (turns || []).filter(t => t.ch === 'prospect').map(t => t.text).join(' . ');
+  const out = {};
+
+  // "forty, forty-five calls a week" / "about 30 calls a day" — take the LAST number before the
+  // unit, so a corrected range ("forty, forty-five") lands on what they settled on.
+  const vol = said.match(new RegExp('([\\s\\S]{0,45})\\b(?:calls?|leads?|inquiries)\\b[^.]{0,12}?\\b(day|week|month)\\b', 'i'));
+  if (vol) {
+    const ns = numbersInOrder(vol[1]);
+    const n = ns.length ? ns[ns.length - 1] : null;
+    if (n && n > 0 && n < 10000) { out.calls = n; out.period = vol[2].toLowerCase(); }
+  }
+
+  // "nine grand a job" / "$9,000 replacement" / "average job is about eight thousand".
+  // The amount sits either side of the word, so search a window around each occurrence.
+  for (const m of said.matchAll(/\b(?:job|ticket|replacement|install(?:ation)?|system|unit|roof)\b/gi)) {
+    const v = moneyIn(said.slice(Math.max(0, m.index - 45), m.index + m[0].length + 45));
+    if (v) { out.ticket = v; break; }
+  }
+  return out;
+}
+
+// a job-sized amount in a fragment: "nine grand", "12k", "$9,000", "eight thousand"
+function moneyIn(seg) {
+  const grand = seg.match(new RegExp('((?:\\d[\\d,]*|(?:' + NUM_W + ')(?:[\\s-]+(?:' + NUM_W + '))*))\\s*(?:grand|k\\b)', 'i'));
+  if (grand) {
+    const g = numbersInOrder(grand[1]);
+    const v = g.length ? g[g.length - 1] * 1000 : 0;
+    if (v >= 500 && v <= 100000) return v;
+  }
+  const ns = numbersInOrder(seg).filter(x => x >= 1000 && x <= 100000);
+  return ns.length ? ns[ns.length - 1] : null;
+}
+
+// Turn the figures into plain sourced facts. Returns '' when they have not given us enough —
+// an empty block is correct; a made-up one is the thing we are trying to prevent.
+function figuresBlock(f) {
+  if (!f || !f.calls) return '';
+  const perMonth = Math.round(f.calls * (PER_MONTH[f.period] || 1));
+  const missed = Math.floor(perMonth * 0.27);
+  const lines = [
+    'calls: ' + f.calls + ' per ' + f.period + ' = about ' + perMonth + ' a month (their own figure)',
+    'unanswered at the 27% industry rate: about ' + missed + ' calls a month',
+  ];
+  if (f.ticket) {
+    lines.push('their ticket: about $' + f.ticket.toLocaleString('en-US'));
+    lines.push('even TWO of those missed calls closing = $' + (f.ticket * 2).toLocaleString('en-US') + ' a month walking out');
+  }
+  return '\n\nTHEIR NUMBERS (already calculated from what THEY said — say these, do not recompute):\n- ' +
+    lines.join('\n- ') +
+    '\nUse these figures directly. They are conservative on purpose; do not inflate them.';
 }
 
 // every numeric value present in a text (digits + spoken forms)
@@ -665,10 +749,13 @@ async function coach(s) {
     const recent = s.turns.slice(-24)
       .map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text)
       .join('\n');
+    // recompute from their own words before the prompt is built, so the arithmetic is a fact the
+    // guard will accept rather than something the model has to derive (and would get wrong)
+    s.figuresMd = figuresBlock(extractFigures(s.turns));
     const systemPrompt = buildSystemPrompt(s);
     const userPrompt = 'LIVE TRANSCRIPT (most recent last):\n' + recent + '\n\nDecide now.';
     // guard inputs: every number the line is ALLOWED to say must come from here
-    const guardSources = (s.productContent || '') + '\n' + (s.priorMemoryMd || '') + '\n' + recent;
+    const guardSources = (s.productContent || '') + '\n' + (s.priorMemoryMd || '') + '\n' + (s.figuresMd || '') + '\n' + recent;
     const neverSay = (s.closerProfile && s.closerProfile.never_say) || '';
 
     const r = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -1994,6 +2081,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
-  stripRepeatOpener, repeatsOpener,
+  stripRepeatOpener, repeatsOpener, extractFigures, figuresBlock,
   deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };
