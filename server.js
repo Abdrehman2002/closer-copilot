@@ -99,6 +99,11 @@ must be precise enough to perform without thinking:
   so it reads as visual. Vocabulary: [👤 lean in] [👤 warm smile] [👤 nod] [👤 sit back] [👤 open hands] [👤 hold eye contact].
   Add one when it strengthens the moment; the closer ignores it if their camera is off.
 - Use 1–2 cues total per card (a vocal one, optionally a 👤 body one), each at the exact word it applies to.
+- THE FIRST FEW WORDS MUST BE SAYABLE INSTANTLY. Whatever comes before the first pause mark should be
+  at most about five words and need no thought — "I get that", "Totally fair", "Say more about that".
+  The closer has under two seconds to start talking or the prospect can hear that they're reading.
+  They start on your opening and read the rest of the line WHILE speaking it, so never put a long
+  clause, a number, or anything they have to parse first. Lead short, then unfold.
 - TONE field = ONE word, the register to start in. Nothing else — no pace, no vocal quality, no body
   note, no "·". Everything about HOW to say it goes INSIDE the line, at the word it applies to.
   The closer is reading the line mid-call; a mood label above it competes for their eye and cannot

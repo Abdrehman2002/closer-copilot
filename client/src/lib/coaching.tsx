@@ -6,7 +6,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 // turn the coach's delivery marks into styled inline HTML
 export function renderLineHtml(raw: string): string {
   let h = esc(raw || '')
-  h = h.replace(/\|\|\|\|/g, '<span class="cl-pause-long">‖ 2s</span>')
+  h = h.replace(/\|\|\|\|/g, '<span class="cl-pause-long">hold 2s</span>')
   h = h.replace(/\|\|/g, '<span class="cl-pause">‖</span>')
   h = h.replace(/\[👤\s*([^\]]+)\]/g, '<span class="cl-cue cl-body">on-cam: $1</span>')
   h = h.replace(/\[([^\]]+)\]/g, '<span class="cl-cue">$1</span>')
@@ -28,55 +28,56 @@ export function CoachingCard({
 }) {
   const silent = /silent/i.test(tone)
   const lg = size === 'lg'
+
+  // The tone is the FIRST thing in the sentence, not a badge on a row above it.
+  //
+  // It used to sit in its own header row while the line below was 21px and bold — so the eye
+  // landed on the words and skipped the tone entirely. Two reading targets is one too many when
+  // you have under two seconds to answer: hesitate longer than that and the prospect can hear
+  // that you're reading. Now there is a single line of sight, and the very first thing on it
+  // tells you how to open your mouth.
+  const html =
+    `<span class="cl-tone${silent ? ' cl-tone-silent' : ''}">${esc(tone || '…')}</span>` +
+    renderLineHtml(line)
+
   return (
     <div className={cn('rounded-xl border border-border bg-card shadow-sm', lg ? 'p-5' : 'p-4', className)}>
-      <div className="mb-2.5 flex items-start justify-between gap-2">
-        {/* Tone leads the card: you read HOW to say it before the words. */}
-        <span className="flex flex-wrap items-center gap-1.5">
-          <span className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg',
-            lg ? 'px-3 py-2' : 'px-2.5 py-1.5',
-            silent ? 'bg-amber-600/12' : 'bg-primary/12'
-          )}>
-            <AudioLines className={cn('shrink-0', lg ? 'h-[18px] w-[18px]' : 'h-4 w-4', silent ? 'text-amber-700' : 'text-primary')} />
-            <span className={cn(
-              'font-extrabold uppercase tracking-[0.08em]',
-              lg ? 'text-[15px]' : 'text-[13.5px]',
-              silent ? 'text-amber-700' : 'text-primary'
-            )}>{tone || '…'}</span>
+      <div
+        className={cn('cl-line font-semibold leading-snug', lg ? 'text-[27px]' : 'text-[21px]')}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {!streaming && (technique || why || confidence === 'low' || (onRate && id !== undefined)) && (
+        <div className="mt-2.5 flex items-center gap-2 text-xs text-muted-foreground">
+          <AudioLines className="h-3.5 w-3.5 shrink-0 text-primary/60" />
+          <span className="min-w-0 truncate">
+            <span className="font-semibold text-primary">{technique}</span>{why ? ` — ${why}` : ''}
           </span>
-          {confidence === 'low' && !streaming && (
-            <span className="rounded-md bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
+          {confidence === 'low' && (
+            <span className="shrink-0 rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700"
               title="The coach is improvising beyond the playbook here — trust your own read">
               improvised
             </span>
           )}
-        </span>
-        {!streaming && onRate && id !== undefined && (
-          <div className="flex shrink-0 items-center gap-1">
-            <button
-              onClick={() => onRate(id, true)}
-              aria-label="Used this line"
-              className={cn(
-                'grid h-8 w-8 place-items-center rounded-md transition-colors',
-                used === true ? 'bg-success/15 text-success' : 'text-muted-foreground hover:bg-secondary'
-              )}
-            ><ThumbsUp className="h-3.5 w-3.5" /></button>
-            <button
-              onClick={() => onRate(id, false)}
-              aria-label="Didn't use this line"
-              className={cn(
-                'grid h-8 w-8 place-items-center rounded-md transition-colors',
-                used === false ? 'bg-destructive/15 text-destructive' : 'text-muted-foreground hover:bg-secondary'
-              )}
-            ><ThumbsDown className="h-3.5 w-3.5" /></button>
-          </div>
-        )}
-      </div>
-      <div className={cn('cl-line font-semibold leading-snug', lg ? 'text-[27px]' : 'text-[21px]')} dangerouslySetInnerHTML={{ __html: renderLineHtml(line) }} />
-      {!streaming && (technique || why) && (
-        <div className="mt-2 text-xs text-muted-foreground">
-          <span className="font-semibold text-primary">{technique}</span>{why ? ` — ${why}` : ''}
+          {onRate && id !== undefined && (
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <button
+                onClick={() => onRate(id, true)}
+                aria-label="Used this line"
+                className={cn(
+                  'grid h-7 w-7 place-items-center rounded-md transition-colors',
+                  used === true ? 'bg-success/15 text-success' : 'text-muted-foreground hover:bg-secondary'
+                )}
+              ><ThumbsUp className="h-3.5 w-3.5" /></button>
+              <button
+                onClick={() => onRate(id, false)}
+                aria-label="Didn't use this line"
+                className={cn(
+                  'grid h-7 w-7 place-items-center rounded-md transition-colors',
+                  used === false ? 'bg-destructive/15 text-destructive' : 'text-muted-foreground hover:bg-secondary'
+                )}
+              ><ThumbsDown className="h-3.5 w-3.5" /></button>
+            </div>
+          )}
         </div>
       )}
     </div>

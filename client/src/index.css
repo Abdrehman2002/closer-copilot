@@ -77,7 +77,13 @@ a:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; bord
 /* coaching-card delivery marks */
 .cl-line b { color: #000; text-decoration: underline; text-decoration-color: hsl(var(--primary)); text-underline-offset: 3px; font-weight: 700; }
 .cl-pause { color: hsl(var(--primary)); font-weight: 800; padding: 0 3px; }
-.cl-pause-long { font-size: 12px; background: hsl(var(--primary) / 0.1); color: hsl(var(--primary)); border-radius: 5px; padding: 2px 7px; vertical-align: middle; }
+.cl-pause-long { font-size: 12px; font-weight: 700; background: hsl(var(--primary) / 0.12); color: hsl(var(--primary)); border-radius: 5px; padding: 2px 7px; margin: 0 2px; vertical-align: middle; letter-spacing: .02em; }
+/* Register, sitting at the head of the sentence rather than on a row above it — the first thing
+   the eye lands on, so you know how to open before the first word leaves your mouth. */
+.cl-tone { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em;
+  background: hsl(var(--primary)); color: #fff; border-radius: 5px; padding: 3px 8px;
+  margin-right: 7px; vertical-align: middle; white-space: nowrap; }
+.cl-tone-silent { background: hsl(32 85% 44%); }
 .cl-cue { font-size: 12px; font-style: italic; font-weight: 500; color: #475569; background: hsl(220 14% 94%); border-radius: 5px; padding: 1px 8px; margin: 0 3px; vertical-align: middle; white-space: nowrap; }
 .cl-cue.cl-body { color: hsl(214 80% 42%); background: hsl(214 95% 94%); font-style: normal; }
 .cl-down { color: hsl(214 95% 52%); }
