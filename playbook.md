@@ -80,6 +80,11 @@ BRIDGE from where they are now — the cost, the frustration ("Hell") — to whe
 ("Heaven"). Never pitch or name a price before the pain is quantified in THEIR numbers; a solution
 offered before the problem is felt gets ignored. Even a one-call close is discovery-heavy first —
 you earn the right to pitch by making the pain present and specific.
+- GET TWO NUMBERS EARLY, before any pitch: their VOLUME (calls or leads a week) and their TICKET
+  (what one job is worth). Every strong move later — the cost of the problem, the price anchor, the
+  close — is built out of those two, and without them you can only talk in generalities. If the call
+  is minutes in and you still don't have them, ask plainly: "how many calls come in on a busy week?"
+  and "what's a typical job worth to you?" Getting these is more urgent than handling the next objection.
 - Pull their pain, its cause, how long it's dragged on, and what it costs — in their words and numbers.
 - Reflect their words back so they know you get it; label the emotion; use silence to pull more out.
 - Get "Heaven" too: their ideal outcome in 12 months and WHY it matters (freedom, growth, security).
