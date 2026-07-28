@@ -474,15 +474,22 @@ function spokenRunValues(words) {
   // sequential "hundred/thousand" grammar: X hundred [Y], X thousand [Y hundred] [Z].
   // English additive order is strictly descending ("ninety seven" = 97; "seven ninety"
   // is NOT 97 or 104 — it's a two-part price, handled below), so enforce that.
-  let total = 0, cur = 0, valid = true, lastWord = null;
-  for (const t of toks) {
+  let total = 0, cur = 0, valid = true, lastWord = null, justScaled = false, sawAnd = false;
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
     if (t in NUM_WORDS) {
+      // "four thousand one time" is NOT 4001. English joins a trailing unit either with "and"
+      // ("four thousand and fifty") or by scaling it ("four thousand five hundred") — a bare
+      // small number straight after a scale word belongs to the NEXT phrase ("one time",
+      // "one month"). Reading it as part of the price invented a number nobody said, the
+      // guard then found it unsourced, and the whole card was withheld at the price moment.
+      if (justScaled && !sawAnd && toks[i + 1] !== 'hundred') break;
       const v = NUM_WORDS[t];
       if (lastWord != null && !(lastWord >= 20 && lastWord % 10 === 0 && v < 10)) { valid = false; break; }
-      cur += v; lastWord = v;
-    } else if (t === 'hundred') { cur = (cur || 1) * 100; lastWord = null; }
-    else if (t === 'thousand') { total += (cur || 1) * 1000; cur = 0; lastWord = null; }
-    else if (t === 'and') { lastWord = null; }
+      cur += v; lastWord = v; justScaled = false;
+    } else if (t === 'hundred') { cur = (cur || 1) * 100; lastWord = null; justScaled = true; }
+    else if (t === 'thousand') { total += (cur || 1) * 1000; cur = 0; lastWord = null; justScaled = true; }
+    else if (t === 'and') { lastWord = null; sawAnd = true; }
     else { valid = false; break; }
   }
   if (valid) vals.add(total + cur);
