@@ -78,15 +78,26 @@ async function connectEvents() {
   }
 }
 
+// How often the recorder hands us audio. This is dead latency on every single card: at 250ms the
+// prospect's last words sat in the browser for up to a quarter second before they were even sent.
+// 100ms costs a few more (tiny) websocket frames and buys that time back.
+const CHUNK_MS = 100
+
 function pipe(stream: MediaStream, ch: 'me' | 'prospect', t: string) {
   let ws: WebSocket
-  const rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 64000 })
+  // The prospect's audio has ALREADY been compressed once by Meet, so re-encoding it at 64k stacks
+  // a second generation of loss on the channel we can least afford to lose — that transcript is
+  // what the coach reads. Give that channel more headroom; the mic is a clean local source.
+  const rec = new MediaRecorder(stream, {
+    mimeType: 'audio/webm;codecs=opus',
+    audioBitsPerSecond: ch === 'prospect' ? 128000 : 64000,
+  })
   rec.ondataavailable = (e) => { if (e.data.size && ws && ws.readyState === 1) e.data.arrayBuffer().then((b) => ws.send(b)) }
   // Auto-reconnect: if the audio socket drops mid-call (server redeploy, network blip), the
   // MediaRecorder keeps running but sends would silently fail — reopen and keep streaming.
   const connect = () => {
     ws = new WebSocket(wsUrl('/audio?ch=' + ch + '&t=' + encodeURIComponent(t)))
-    ws.onopen = () => { if (rec.state === 'inactive') rec.start(250) }
+    ws.onopen = () => { if (rec.state === 'inactive') rec.start(CHUNK_MS) }
     ws.onclose = () => { if (state.active) setTimeout(connect, 800) }
     socks.push(ws)
   }
@@ -115,7 +126,13 @@ export const liveCall = {
     state.status = 'Allow the mic, then pick your Meet tab with "Also share tab audio"…'; emit()
 
     const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    const disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+    // Tab audio is already a clean digital stream. The browser's mic-oriented processing
+    // (echo cancellation, noise suppression, auto gain) is tuned for a room and a microphone, and
+    // on compressed speech it removes detail the transcriber needs. Turn it off for this channel.
+    const disp = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    })
     if (!disp.getAudioTracks().length) {
       mic.getTracks().forEach((t) => t.stop()); disp.getTracks().forEach((t) => t.stop())
       throw new Error('No tab audio — pick the Meet tab and tick "Also share tab audio".')

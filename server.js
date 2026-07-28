@@ -177,6 +177,7 @@ function getSession(userId) {
       closerProfile: null, callGoal: '', kbDocs: [],
       lastCardAt: 0, coachGen: 0, coachAbort: null, coachTimer: null, figuresMd: '',
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
+      pendingProspectTurn: false, confSamples: null, warnedAudio: false,
       lastSignalTag: null, lastProspectFinalAt: 0,
       discovery: null, lastDiscoveryAt: 0, discoveryBusy: false,
       simIdx: 0
@@ -1918,7 +1919,12 @@ const server = http.createServer(async (req, res) => {
 // names — which nova-3 boosts so proper nouns transcribe correctly instead of as garble
 // (a wrong name in the transcript becomes a wrong name in the whispered line).
 function dgUrl(s, endpointing = 300) {
-  let url = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&endpointing=' + endpointing;
+  // A BACKSTOP, not a speed-up — utterance_end_ms has a 1s floor, so the 400ms debounce normally
+  // wins and this never fires. It exists for the bad-audio case: when the prospect is on a phone
+  // speaker or the tab audio is heavily compressed, is_final arrives in dribs and each one RESETS
+  // that debounce, so the card can be pushed back indefinitely and speech_final may never come at
+  // all. UtteranceEnd is measured off the audio gap, so it still fires when they've clearly stopped.
+  let url = 'wss://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&punctuate=true&interim_results=true&utterance_end_ms=1000&endpointing=' + endpointing;
   const seen = new Set();
   for (const raw of [s.dealName, s.dealCompany, s.activeProductName]) {
     const t = String(raw || '').trim();
@@ -1948,12 +1954,40 @@ function relayAudio(clientWs, ch, s) {
 
     dg.onmessage = (ev) => {
       let d; try { d = JSON.parse(ev.data.toString()); } catch { return; }
+
+      // End of turn, measured from the actual gap rather than inferred from a confidence flag.
+      // Carries no transcript, so it must be handled before the alternatives check below.
+      if (d.type === 'UtteranceEnd') {
+        if (ch === 'prospect' && s.pendingProspectTurn) {
+          s.pendingProspectTurn = false;
+          clearTimeout(s.coachTimer);
+          coach(s);
+        }
+        return;
+      }
+
       const alt = d.channel && d.channel.alternatives && d.channel.alternatives[0];
       if (!alt) return;
       const text = (alt.transcript || '').trim();
       if (!text) return;
       // note when the closer is speaking (interim OR final) so the coach can hold cards until they pause
       if (ch === 'me') s.meLastAt = Date.now();
+
+      // If we are consistently getting mush out of the prospect's channel, the closer should know
+      // that — the coach is only ever as good as what it heard, and a bad line is usually a bad
+      // transcript rather than a bad model.
+      if (ch === 'prospect' && d.is_final && typeof alt.confidence === 'number') {
+        (s.confSamples = s.confSamples || []).push(alt.confidence);
+        if (s.confSamples.length === 6 && !s.warnedAudio) {
+          const avg = s.confSamples.reduce((a, b) => a + b, 0) / s.confSamples.length;
+          if (avg < 0.65) {
+            s.warnedAudio = true;
+            broadcast(s, { type: 'status', msg: 'their audio is coming through unclear — cards may be off, ask them to move somewhere quieter or off speakerphone' });
+            console.log('[audio]', s.userId.slice(0, 8), 'prospect confidence', avg.toFixed(2));
+          }
+        }
+        if (s.confSamples.length > 6) s.confSamples.shift();
+      }
 
       // INSTANT lane: live deterministic read of the moment, updated as the prospect talks
       if (ch === 'prospect') emitSignal(s, text);
@@ -1963,9 +1997,11 @@ function relayAudio(clientWs, ch, s) {
         broadcast(s, { type: 'transcript', ch, text });
         if (ch === 'prospect') {
           s.lastProspectFinalAt = Date.now();   // start of the "prospect stopped → card shown" latency clock
+          s.pendingProspectTurn = true;         // an UtteranceEnd now has something to act on
           clearTimeout(s.coachTimer);
-          // prospect actually stopped (speech_final) → coach immediately; mid-stream → short debounce
-          s.coachTimer = setTimeout(() => coach(s), d.speech_final ? 0 : 400);
+          // prospect actually stopped (speech_final) → coach immediately; mid-stream → short debounce.
+          // UtteranceEnd above can beat this timer when the audio is too rough for speech_final.
+          s.coachTimer = setTimeout(() => { s.pendingProspectTurn = false; coach(s); }, d.speech_final ? 0 : 400);
           // throttled discovery tracker — independent of the coach cooldown, off the whisper path
           if (s.turns.length >= 3 && Date.now() - (s.lastDiscoveryAt || 0) > 12000) { s.lastDiscoveryAt = Date.now(); trackDiscovery(s); }
         }
