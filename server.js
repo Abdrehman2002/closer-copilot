@@ -71,7 +71,10 @@ const PLAYBOOK_TEMPLATES = [
 
 const FORMAT_RULES = `Respond in EXACTLY this plain-text format (no JSON, no markdown fences):
 DECISION: FIRE or HOLD
-TONE: <from the tone vocabulary, ALWAYS with a pace, e.g. CALM · slow>
+TONE: <ONE word only: CALM | CERTAIN | EMPATHETIC | CURIOUS | FIRM | SILENT. Nothing else — no pace,
+no "warmth in the voice", no bracketed cues. Every instruction about HOW to say it belongs INSIDE the
+line, at the exact word it applies to, because that is where the closer's eye is. A mood label at the
+top of the card cannot tell them WHERE to soften.>
 LINE: <the exact words ME should say next>
 WHY: <max 10 words, the read on the moment>
 TECH: <named move: mirror, label, reframe, takeaway, assumptive close, silence, calibrated question, pain quantify>
@@ -96,8 +99,11 @@ must be precise enough to perform without thinking:
   so it reads as visual. Vocabulary: [👤 lean in] [👤 warm smile] [👤 nod] [👤 sit back] [👤 open hands] [👤 hold eye contact].
   Add one when it strengthens the moment; the closer ignores it if their camera is off.
 - Use 1–2 cues total per card (a vocal one, optionally a 👤 body one), each at the exact word it applies to.
-- TONE field = opening state before the first word: EMOTION · pace · vocal quality (+ optional body note).
-  e.g. "CALM · slow · warmth in the voice" / "CERTAIN · deliberate · smile in your voice, sit back" — never just "CALM".
+- TONE field = ONE word, the register to start in. Nothing else — no pace, no vocal quality, no body
+  note, no "·". Everything about HOW to say it goes INSIDE the line, at the word it applies to.
+  The closer is reading the line mid-call; a mood label above it competes for their eye and cannot
+  say WHERE to soften or slow down. Put it in the sentence or leave it out.
+  e.g. "CALM" / "CERTAIN" — never "CALM · slow · warmth in the voice".
 - If the right move is silence: LINE: … and TONE: SILENT — go quiet ~3 seconds, let them fill it
 - If DEAL MEMORY is present, USE it: reference what THIS prospect said in previous calls
   (their objections, commitments, stakeholders, stated pain) whenever it sharpens the move.
@@ -107,7 +113,7 @@ must be precise enough to perform without thinking:
 
 Example:
 DECISION: FIRE
-TONE: CALM · slow · soft eyes
+TONE: CALM
 LINE: I hear you — |||| [softer] most owners said the same… ↘ until they counted the *missed* calls. || [👤 lean in] ↗ what's one job worth to you?
 WHY: price pushback; re-anchor on his stated pain
 TECH: label + reframe`;
@@ -577,6 +583,18 @@ function extractFigures(turns) {
       }
     }
 
+    // If they give you their OWN missed-call number, it beats any industry average. Quoting the
+    // 27% figure at a man who just told you "about fifteen" argues with him using a statistic,
+    // and he stops believing everything after it.
+    if (!out.missed && /\b(?:unanswered|missed|voicemail|slip\w*)\b/i.test(asked + ' ' + said)) {
+      const ns = numbersInOrder(said).filter(n => n > 0 && n < 10000);
+      if (ns.length) {
+        out.missed = ns[ns.length - 1];
+        const per = said.match(/\b(day|week|month)\b/i) || asked.match(/\b(day|week|month)\b/i);
+        out.missedPeriod = per ? per[1].toLowerCase() : 'month';
+      }
+    }
+
     // "nine grand a job" / "$9,000 replacement" / "average job is about eight thousand".
     // The amount sits either side of the word, so search a window around each occurrence.
     if (!out.ticket) {
@@ -613,10 +631,15 @@ function moneyIn(seg) {
 function figuresBlock(f) {
   if (!f || !f.calls) return '';
   const perMonth = Math.round(f.calls * (PER_MONTH[f.period] || 1));
-  const missed = Math.floor(perMonth * 0.27);
+  // Their stated number always wins over the industry rate. If they said fifteen, the answer is
+  // fifteen — telling them it's really forty-eight is arguing with the buyer about their own shop.
+  const stated = f.missed ? Math.round(f.missed * (PER_MONTH[f.missedPeriod] || 1)) : null;
+  const missed = stated != null ? stated : Math.floor(perMonth * 0.27);
   const lines = [
     'calls: ' + f.calls + ' per ' + f.period + ' = about ' + perMonth + ' a month (their own figure)',
-    'unanswered at the 27% industry rate: about ' + missed + ' calls a month',
+    stated != null
+      ? 'unanswered: about ' + missed + ' a month — THEY told you this. Use THIS number. Never quote the 27% average at them.'
+      : 'unanswered at the 27% industry rate: about ' + missed + ' calls a month',
   ];
   if (f.ticket) {
     lines.push('their ticket: about $' + f.ticket.toLocaleString('en-US'));
