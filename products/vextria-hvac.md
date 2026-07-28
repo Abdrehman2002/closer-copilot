@@ -20,6 +20,43 @@ scheduling agents are later upsells, not the headline.
   voicemail — the caller just dials the next company. That's not a missed call, it's a lost job.
 - After-hours calls (9pm, AC dies) die in voicemail and go to the competitor who answers.
 
+## Who this is for — and who to walk away from
+**Good fit:** owner-operator or small shop, 2+ techs, roughly 30+ calls a week, missing calls
+because they're on a roof or under a unit, and they can name a job they actually lost. The
+person who can say yes is on the call.
+**Walk away — don't spend the whole call on:** a one-man shop under ~15 calls a week (the math
+genuinely doesn't work and they'll churn), someone shopping purely on price with no stated pain,
+anyone who can't tell you what a missed call costs them, or a "I'd have to ask my partner" where
+the partner has never heard of the problem. Disqualifying early is not losing a deal — it
+protects the close rate and it's the honest thing to do.
+
+## The trigger — what makes them buy NOW
+Owners don't buy because the pitch was good. They buy because something happened. Listen for it,
+and if you hear it, build the whole call on it:
+- A bad month where they know exactly how many jobs slipped
+- Losing one specific job to a competitor who answered first
+- A tech or the office person quitting, so the phone is suddenly on them
+- Peak season starting — they already know what's coming
+If none of that surfaces, ask for it directly: **"What made you take this call today?"** Without
+a trigger you're selling to someone comfortable, and comfortable people don't sign.
+
+## DISCOVERY — earn the right to pitch (do this FIRST)
+Never name a price before the problem is quantified in THEIR numbers. Even on a one-call close,
+diagnose first: a solution offered before the pain is felt gets heard as an expense. Ask one at a
+time, and go quiet after each one.
+1. "Walk me through how calls come in today — you, a machine, or someone in the office?"
+2. "What happens to a call that comes in at eight at night?"  ← opens the real gap
+3. **"How many calls come in on a busy week?"**  ← MUST GET THIS
+4. **"What's a typical replacement worth to you?"**  ← MUST GET THIS
+5. "How many of those do you reckon you're missing?"  ← their own number beats any average
+6. "What have you already tried?"  ← their real competitor is doing nothing, or an answering service
+7. "What made you take this call today?"  ← the trigger
+
+**THE TWO NUMBERS: call volume and ticket value.** Without both you can only speak in
+generalities and the entire cost-of-the-problem move is unavailable to you. If you are a few
+minutes in and still don't have them, stop and ask plainly — getting those two matters more than
+handling the next objection.
+
 ## Verified numbers (use THEIR figures when you can — loss aversion)
 - ~27% of inbound calls to home-services go unanswered; up to 62% when busy.
 - 67% who can't reach you immediately call a competitor; 85% who hit voicemail never call back.
@@ -27,12 +64,44 @@ scheduling agents are later upsells, not the headline.
 - Avg job at stake: HVAC replacement $7k-20k · roof replacement $9k-18k. One saved job pays for months.
 - Missed-call math to run live: `calls/mo × ~27% missed × real-job % × avg ticket`.
   Example: 100 calls/mo → 27 missed → even 2 real jobs at $9k = ~$18k/mo walking out.
+- If THEY tell you their own missed-call number, use theirs. Never correct a man about his own
+  shop with an industry average — you'll win the point and lose the deal.
 
 ## Pricing (LAUNCH — locked)
 - **Setup (one-time): $4,000.** Floor **$3,500** — and only drop there in TRADE (a testimonial, referrals, or a faster commitment), never a plain discount. Monthly retainer: **$797/mo (Pro).** Flat + fair-use cap.
 - Anchor high first: a human receptionist is $2,500-4,000/mo, one call at a time, 9-5 only.
 - Founding-client framing allowed: "taking a few founding clients at this rate before it goes up."
 - Gate the exact number until after the demo/value is built if the moment allows.
+
+## READ THE PUSHBACK — the same words need opposite moves
+Before you answer ANY pushback, decide which of these two it is. Getting this wrong is how a
+winnable deal dies.
+
+**DOUBT** — *"I don't miss that many calls" · "it'll quote wrong" · "you're expensive" · "my buddy
+saw it for three hundred"*. They don't believe the problem, or they don't believe you.
+→ **Make it real.** Their numbers, the cost of the gap, the specific mechanism. This is where the
+math, the anchor and the proof belong.
+
+**INDECISION** — *"let me think about it" · "I need to run it by my brother" · "send me a packet" ·
+"call me after the summer"*. They believe you. They're afraid of making a bad call.
+→ **Stop selling.** More pain makes an indecisive buyer freeze harder, not move. Instead:
+- Make the call FOR them: "Here's what I'd do if it were my shop."
+- Take the risk off: month-to-month, thirty-day money-back, live in days. "The risk is on me, not you."
+- Shrink the decision: agree the smallest concrete next step, not the whole commitment.
+- Say the hesitation out loud: "What's the part you're not sure about?"
+
+Most deals in this trade are lost to **no decision**, not to a competitor. Indecision is its own
+objection and it needs its own answer.
+
+## Using their name
+Their first name is in the deal record. Use it — but rarely. Overuse is the fastest way in sales
+to sound like a telemarketer, and an owner clocks it instantly.
+Four moments only, three or four times in the whole call:
+- Once when you open
+- When they've gone quiet or drifted, to pull them back
+- Just before something hard — the price, or a challenge
+- On the ask
+Never as mid-sentence filler, never twice in one line, never in two cards in a row.
 
 ## Common objections and the honest answers
 - **"My customers will hate talking to a robot."** → "I'd worry about that too, which is
@@ -64,8 +133,9 @@ scheduling agents are later upsells, not the headline.
 - **"ServiceTitan already has AI."** → "It does, if you're on ServiceTitan, running $10M+,
   with a team to configure it. This is done-for-you, built around YOUR pricing, live in days,
   a fraction of the cost, for shops your size."
-- **"Let me think about it."** → "Totally fair. Just so I know what to send you: is it the
-  price, or whether it'll actually work for your shop?" (isolate, then handle the REAL one.)
+- **"Let me think about it."** → this is INDECISION, not doubt. Don't add pressure. "Totally
+  fair. Just so I know what to send you: is it the price, or whether it'll actually work for your
+  shop?" — isolate, then take the risk off rather than pushing harder.
 - **"What about emergencies / after hours?"** → "That's where it shines. 9pm, AC dies, office
   closed, it answers, gets details, flags it urgent, transfers to on-call or books first thing.
   Those after-hours calls are going to your competitor right now."
@@ -74,7 +144,8 @@ scheduling agents are later upsells, not the headline.
 - The DEMO itself is the proof: it quotes a real roof/system on a live call in ~15 seconds. Play it, don't pitch it.
 - Founder credibility + built specifically for HVAC/roofing (not generic).
 - Risk reversal stands in for testimonials until the first client lands: month-to-month, 30-day money-back.
-- (No client testimonials yet — do not invent results or numbers.)
+- (No client testimonials yet — do not invent results, client names, or numbers. If asked who
+  else uses it, say straight that they'd be an early client and that the demo is the proof.)
 
 ## The close being pushed on this call
 Book the setup on the call. Assumptive: "Want me to get you live this week?"
