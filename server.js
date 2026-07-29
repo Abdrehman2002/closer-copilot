@@ -1369,6 +1369,32 @@ WORDS RULE — this decides whether it hears them at all:
   return { metrics: cfg, preview: lines, usage: j.usage };
 }
 
+// Warm OpenAI's prompt cache before the prospect ever speaks.
+//
+// The first card of a call is measurably slower than every card after it — on the stored calls,
+// 1792ms against a 924-1515ms body, and ~2.6s vs ~1.2s on the bench. That gap is the system
+// prompt being processed uncached the first time. It is also the worst possible card to be slow:
+// it is the closer's first impression of whether this thing is quick enough to rely on.
+//
+// So we pay it during setup instead, seconds before anyone talks. Fire-and-forget, one token of
+// output, and it touches nothing on the live path — by the time the prospect finishes their first
+// sentence the prefix is already cached.
+function warmPromptCache(s) {
+  if (!OPENAI_KEY) return;
+  fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: LIVE_MODEL, temperature: 0, max_tokens: 1,
+      messages: [
+        { role: 'system', content: buildSystemPrompt(s) },
+        { role: 'user', content: 'LIVE TRANSCRIPT (most recent last):\nPROSPECT: hello\n\nDecide now.' },
+      ],
+    }),
+  }).then(() => console.log('[warm]', s.userId.slice(0, 8), 'prompt cache primed'))
+    .catch(e => console.error('[warm]', e.message));
+}
+
 // pre-call tactical battle plan — runs once before each call, spends the best model
 // (not latency sensitive, this is the moat) synthesizing closer + product + Client Brain
 // into a short opening move / predicted objection / close play the closer reads before dialing
@@ -1947,6 +1973,10 @@ const server = http.createServer(async (req, res) => {
           }
         }
 
+        // everything the live prompt is built from is now loaded — prime the cache while the
+        // closer is still allowing the mic and picking their tab
+        warmPromptCache(s);
+
         let battlePlan = null;
         try {
           const bp = await generateBattlePlan(s.closerProfile, s.productContent, s.activeProductName, s.priorMemoryMd, clientName, s.dealCompany, s.callGoal);
@@ -2349,6 +2379,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
-  stripRepeatOpener, repeatsOpener, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics,
+  stripRepeatOpener, repeatsOpener, warmPromptCache, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics,
   deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };
