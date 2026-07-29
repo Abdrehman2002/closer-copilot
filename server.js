@@ -184,7 +184,7 @@ function getSession(userId) {
       userId, jwt: null,
       turns: [], cards: [], events: new Set(), callLog: null, callStartAt: 0,
       activeDealId: null, activeProductId: null, activeProductName: '',
-      productContent: '', memory: '', dealState: null, dealName: '', dealCompany: '',
+      productContent: '', productMetrics: null, memory: '', dealState: null, dealName: '', dealCompany: '',
       closerProfile: null, callGoal: '', kbDocs: [],
       lastCardAt: 0, coachGen: 0, coachAbort: null, coachTimer: null, figuresMd: '',
       meLastAt: 0, pendingCard: null, cardFlushTimer: null,
@@ -553,107 +553,184 @@ function numbersInOrder(text) {
 
 const PER_MONTH = { day: 22, week: 4, month: 1 };   // working days; weeks rounded DOWN from 4.3
 
-// Pull what the prospect actually said about volume and job value. Only their own words — never
-// the closer's, or we would be quoting our own pitch back as if it were their business.
-function extractFigures(turns) {
+// What to listen for, and what to work out, when a playbook has not said. This is the old
+// hardcoded HVAC behaviour kept as the fallback, so existing playbooks keep working untouched.
+const DEFAULT_METRICS = {
+  listen: {
+    volume: { noun: 'calls', words: ['calls', 'leads', 'inquiries'] },
+    value: { noun: 'job', words: ['job', 'ticket', 'replacement', 'install', 'installation', 'system', 'unit', 'roof'] },
+  },
+  steps: [
+    { name: 'perMonth', expr: 'volumeMonth', say: '{volume} {volumeNoun} per {period} = about {x} a month (their own figure)' },
+    { name: 'missed', expr: 'perMonth * 0.27', statedBy: 'missed', say: 'unanswered: about {x} a month' },
+    { name: 'atRisk', expr: 'value * 2', money: true, needs: 'value', say: 'even TWO of those closing = {x} a month walking out' },
+  ],
+};
+
+// A calculator, not an interpreter. Numbers, + - * / ( ) % and names already defined -- nothing
+// else parses. A playbook's formula is DATA we read, never code we run, so a user can write their
+// own loss maths without being able to write anything that executes.
+//
+// The model is kept away from this deliberately. It read "forty-five calls a WEEK" as forty-five
+// a MONTH, and a wrong number said with confidence to a buyer is worse than no number at all.
+function evalExpr(expr, vars) {
+  const toks = String(expr || '').match(/\d+(?:\.\d+)?%?|[A-Za-z_][A-Za-z0-9_]*|[+\-*/()]/g);
+  if (!toks) return null;
+  let i = 0;
+  const peek = () => toks[i];
+  const eat = (t) => (toks[i] === t ? (i++, true) : false);
+
+  function primary() {
+    if (eat('(')) { const v = sum(); if (!eat(')')) throw new Error('unbalanced'); return v; }
+    if (eat('-')) return -primary();
+    const t = toks[i++];
+    if (t === undefined) throw new Error('unexpected end');
+    if (/^\d/.test(t)) return t.endsWith('%') ? parseFloat(t) / 100 : parseFloat(t);
+    if (typeof vars[t] !== 'number' || !isFinite(vars[t])) throw new Error('unknown ' + t);
+    return vars[t];
+  }
+  function product() {
+    let v = primary();
+    while (peek() === '*' || peek() === '/') {
+      const op = toks[i++]; const r = primary();
+      v = op === '*' ? v * r : (r === 0 ? NaN : v / r);
+    }
+    return v;
+  }
+  function sum() {
+    let v = product();
+    while (peek() === '+' || peek() === '-') { const op = toks[i++]; const r = product(); v = op === '+' ? v + r : v - r; }
+    return v;
+  }
+  try {
+    const v = sum();
+    if (i !== toks.length) return null;          // trailing junk means the formula is malformed
+    return isFinite(v) ? v : null;
+  } catch { return null; }
+}
+
+// Pull the numbers a playbook says it needs out of what the PROSPECT said -- never out of the
+// closer's own words, or we quote our own pitch back as if it were their business.
+function extractFigures(turns, cfg) {
+  const c = (cfg && cfg.listen) ? cfg : DEFAULT_METRICS;
+  const volWords = ((c.listen.volume) || {}).words || [];
+  const valWords = ((c.listen.value) || {}).words || [];
+  const volAlt = volWords.length ? '(?:' + volWords.map(w => w + 's?').join('|') + ')' : null;
   const list = turns || [];
   const out = {};
 
   for (let i = 0; i < list.length; i++) {
     if (list[i].ch !== 'prospect') continue;
     const said = list[i].text || '';
-    // People answer "how many calls a week?" with "probably forty to forty-five" — the unit lives
-    // in OUR question, not their reply. Read the unit from either, but only ever take the NUMBER
-    // from what they said, or we end up quoting our own question back as their business.
+    // People answer "how many calls a week?" with "probably forty to forty-five" -- the unit lives
+    // in OUR question, not their reply. Read the unit from either; take the NUMBER only from them.
     const asked = (i > 0 && list[i - 1].ch === 'me') ? (list[i - 1].text || '') : '';
 
-    if (!out.calls) {
-      const inAnswer = said.match(new RegExp('([\\s\\S]{0,45})\\b(?:calls?|leads?|inquiries)\\b[^.]{0,12}?\\b(day|week|month)\\b', 'i'));
+    if (!out.volume && volAlt) {
+      const inAnswer = said.match(new RegExp('([\\s\\S]{0,45})\\b' + volAlt + '\\b[^.]{0,12}?\\b(day|week|month)\\b', 'i'));
       if (inAnswer) {
         const ns = numbersInOrder(inAnswer[1]);
-        const n = ns.length ? ns[ns.length - 1] : null;   // "forty, forty-five" -> what they settled on
-        if (n > 0 && n < 10000) { out.calls = n; out.period = inAnswer[2].toLowerCase(); }
+        const n = ns.length ? ns[ns.length - 1] : null;
+        if (n > 0 && n < 100000) { out.volume = n; out.period = inAnswer[2].toLowerCase(); }
       } else {
-        // wide enough for a natural question — "how many calls come in on a typical week?" puts
-        // 21 characters between the two words we need
-        const inQuestion = asked.match(/\b(?:calls?|leads?|inquiries)\b[^.?]{0,32}?\b(day|week|month)\b/i);
+        const inQuestion = asked.match(new RegExp('\\b' + volAlt + '\\b[^.?]{0,32}?\\b(day|week|month)\\b', 'i'));
         if (inQuestion) {
-          // a bare answer: take their opening run of numbers ("40 to 45", "thirty or forty") and
-          // use the top of it, then stop — anything later in the turn is a different subject
-          const lead = said.match(/[^.]*?\d[\d,]*(?:\s*(?:to|or|-|–|,|and)\s*\d[\d,]*)*/i)
-                    || said.match(new RegExp('[^.]*?(?:' + NUM_W + ')(?:[\\s-]+(?:to|or|and|' + NUM_W + '))*', 'i'));
-          const ns = lead ? numbersInOrder(lead[0]).filter(n => n > 0 && n < 10000) : [];
-          if (ns.length) { out.calls = Math.max(...ns); out.period = inQuestion[1].toLowerCase(); }
+          const lead = said.match(/[^.]*?\d[\d,]*(?:\s*(?:to|or|-|--|,|and)\s*\d[\d,]*)*/i)
+            || said.match(new RegExp('[^.]*?(?:' + NUM_W + ')(?:[\\s-]+(?:to|or|and|' + NUM_W + '))*', 'i'));
+          const ns = lead ? numbersInOrder(lead[0]).filter(n => n > 0 && n < 100000) : [];
+          if (ns.length) { out.volume = Math.max(...ns); out.period = inQuestion[1].toLowerCase(); }
         }
       }
     }
 
-    // If they give you their OWN missed-call number, it beats any industry average. Quoting the
-    // 27% figure at a man who just told you "about fifteen" argues with him using a statistic,
-    // and he stops believing everything after it.
-    if (!out.missed && /\b(?:unanswered|missed|voicemail|slip\w*)\b/i.test(asked + ' ' + said)) {
-      const ns = numbersInOrder(said).filter(n => n > 0 && n < 10000);
+    // Their OWN number for the loss beats any industry rate. Correcting a buyer about their own
+    // business with a statistic wins the point and loses the deal.
+    if (!out.stated && /\b(?:unanswered|missed|voicemail|slip\w*|lost)\b/i.test(asked + ' ' + said)) {
+      const ns = numbersInOrder(said).filter(n => n > 0 && n < 100000);
       if (ns.length) {
-        out.missed = ns[ns.length - 1];
+        out.stated = ns[ns.length - 1];
         const per = said.match(/\b(day|week|month)\b/i) || asked.match(/\b(day|week|month)\b/i);
-        out.missedPeriod = per ? per[1].toLowerCase() : 'month';
+        out.statedPeriod = per ? per[1].toLowerCase() : 'month';
       }
     }
 
-    // "nine grand a job" / "$9,000 replacement" / "average job is about eight thousand".
-    // The amount sits either side of the word, so search a window around each occurrence.
-    if (!out.ticket) {
-      for (const m of said.matchAll(/\b(?:job|ticket|replacement|install(?:ation)?|system|unit|roof)\b/gi)) {
+    if (!out.value && valWords.length) {
+      const valRe = new RegExp('\\b(?:' + valWords.join('|') + ')s?\\b', 'gi');
+      for (const m of said.matchAll(valRe)) {
         const v = moneyIn(said.slice(Math.max(0, m.index - 45), m.index + m[0].length + 45));
-        if (v) { out.ticket = v; break; }
+        if (v) { out.value = v; break; }
       }
     }
   }
   return out;
 }
 
-// a job-sized amount in a fragment: "nine grand", "12k", "$9,000", "eight thousand"
+// a value-sized amount in a fragment: "nine grand", "12k", "$9,000", "eight thousand"
 function moneyIn(seg) {
   const grand = seg.match(new RegExp('((?:\\d[\\d,]*|(?:' + NUM_W + ')(?:[\\s-]+(?:' + NUM_W + '))*))\\s*(?:grand|k\\b)', 'i'));
   if (grand) {
     const g = numbersInOrder(grand[1]);
     const v = g.length ? g[g.length - 1] * 1000 : 0;
-    if (v >= 500 && v <= 100000) return v;
+    if (v >= 500 && v <= 1000000) return v;
   }
-  const ns = numbersInOrder(seg).filter(x => x >= 1000 && x <= 100000);
+  const ns = numbersInOrder(seg).filter(x => x >= 1000 && x <= 1000000);
   if (ns.length) return ns[ns.length - 1];
-  // "average job is about nine grand" often lands from the transcriber as "$9" — the word gets
-  // eaten but the dollar sign survives. Nobody quotes a nine dollar HVAC job, so a dollar amount
-  // under a hundred next to a job word means thousands. Requires the "$" so that a bare small
-  // number ("me and two techs") can never be mistaken for a price.
+  // "average job is about nine grand" often reaches us as "$9" -- the word gets eaten but the
+  // dollar sign survives. Nobody quotes a nine dollar job, so a dollar amount under a hundred
+  // beside a value word means thousands. Requires the "$" so a bare small number ("me and two
+  // techs") can never be mistaken for a price.
   const bare = seg.match(/\$\s*(\d{1,2})(?!\d|[.,]\d)/);
-  if (bare) { const v = parseInt(bare[1], 10) * 1000; if (v >= 1000 && v <= 100000) return v; }
+  if (bare) { const v = parseInt(bare[1], 10) * 1000; if (v >= 1000 && v <= 1000000) return v; }
   return null;
 }
 
-// Turn the figures into plain sourced facts. Returns '' when they have not given us enough —
-// an empty block is correct; a made-up one is the thing we are trying to prevent.
-function figuresBlock(f) {
-  if (!f || !f.calls) return '';
-  const perMonth = Math.round(f.calls * (PER_MONTH[f.period] || 1));
-  // Their stated number always wins over the industry rate. If they said fifteen, the answer is
-  // fifteen — telling them it's really forty-eight is arguing with the buyer about their own shop.
-  const stated = f.missed ? Math.round(f.missed * (PER_MONTH[f.missedPeriod] || 1)) : null;
-  const missed = stated != null ? stated : Math.floor(perMonth * 0.27);
-  const lines = [
-    'calls: ' + f.calls + ' per ' + f.period + ' = about ' + perMonth + ' a month (their own figure)',
-    stated != null
-      ? 'unanswered: about ' + missed + ' a month — THEY told you this. Use THIS number. Never quote the 27% average at them.'
-      : 'unanswered at the 27% industry rate: about ' + missed + ' calls a month',
-  ];
-  if (f.ticket) {
-    lines.push('their ticket: about $' + f.ticket.toLocaleString('en-US'));
-    lines.push('even TWO of those missed calls closing = $' + (f.ticket * 2).toLocaleString('en-US') + ' a month walking out');
+// Counts round DOWN and money rounds to nearest: 180 x 27% is 48.6 missed calls, and telling a
+// buyer 49 is inflating his own problem back at him. Overstating is the same failure as inventing.
+const fmtNum = n => Math.floor(n).toLocaleString('en-US');
+const fmtMoney = n => '$' + Math.round(n).toLocaleString('en-US');
+
+// Run the playbook's own steps and write the answers out as plain sourced facts. An empty block
+// is correct when they have not given us enough; an invented one is what we are preventing.
+function figuresBlock(f, cfg) {
+  if (!f || !f.volume) return '';
+  const c = (cfg && cfg.steps && cfg.steps.length) ? cfg : DEFAULT_METRICS;
+  const listen = c.listen || DEFAULT_METRICS.listen;
+  const volumeNoun = (listen.volume || {}).noun || 'calls';
+  const valueNoun = (listen.value || {}).noun || 'job';
+
+  const vars = { volume: f.volume, volumeMonth: Math.round(f.volume * (PER_MONTH[f.period] || 1)) };
+  if (f.value) vars.value = f.value;
+
+  const lines = [];
+  for (const step of c.steps) {
+    if (step.needs && !(step.needs in vars)) continue;      // nothing stated -> make no claim
+    let v = evalExpr(step.expr, vars);
+    let theirs = false;
+    if (step.statedBy === 'missed' && f.stated) {           // their number always wins
+      v = Math.round(f.stated * (PER_MONTH[f.statedPeriod] || 1));
+      theirs = true;
+    }
+    if (v == null) continue;
+    if (step.name) vars[step.name] = v;
+    if (!step.say) continue;
+    const text = String(step.say)
+      .replace(/\{x\}/g, step.money ? fmtMoney(v) : fmtNum(v))
+      .replace(/\{volumeNoun\}/g, volumeNoun)
+      .replace(/\{valueNoun\}/g, valueNoun)
+      .replace(/\{period\}/g, f.period || 'month')
+      .replace(/\{volume\}/g, fmtNum(f.volume))
+      .replace(/\{value\}/g, f.value ? fmtMoney(f.value) : '');
+    lines.push(theirs ? text + ' - THEY told you this. Use THIS number, never an industry average.' : text);
   }
-  return '\n\nTHEIR NUMBERS (already calculated from what THEY said — say these, do not recompute):\n- ' +
+  if (f.value && !lines.some(l => l.indexOf(fmtMoney(f.value)) >= 0)) {
+    lines.splice(Math.max(0, lines.length - 1), 0, 'their ' + valueNoun + ': about ' + fmtMoney(f.value));
+  }
+  if (!lines.length) return '';
+  return '\n\nTHEIR NUMBERS (already calculated from what THEY said - say these, do not recompute):\n- ' +
     lines.join('\n- ') +
     '\nUse these figures directly. They are conservative on purpose; do not inflate them.';
 }
+
 
 // every numeric value present in a text (digits + spoken forms)
 function numbersIn(text) {
@@ -810,7 +887,7 @@ async function coach(s) {
       .join('\n');
     // recompute from their own words before the prompt is built, so the arithmetic is a fact the
     // guard will accept rather than something the model has to derive (and would get wrong)
-    s.figuresMd = figuresBlock(extractFigures(s.turns));
+    s.figuresMd = figuresBlock(extractFigures(s.turns, s.productMetrics), s.productMetrics);
     const systemPrompt = buildSystemPrompt(s);
     const userPrompt = 'LIVE TRANSCRIPT (most recent last):\n' + recent + '\n\nDecide now.';
     // guard inputs: every number the line is ALLOWED to say must come from here
@@ -1741,12 +1818,13 @@ const server = http.createServer(async (req, res) => {
         s.discovery = null; s.lastDiscoveryAt = 0;
 
         const [prodRow, profRows, kbRows] = await Promise.all([
-          s.activeProductId ? sbRest('products?id=eq.' + s.activeProductId + '&select=name,content', jwt) : [],
+          s.activeProductId ? sbRest('products?id=eq.' + s.activeProductId + '&select=name,content,metrics', jwt) : [],
           sbRest('profiles?user_id=eq.' + user.id + '&select=tone,framework,signature_phrases,never_say', jwt),
           sbRest('documents?select=name,content&' + (s.activeDealId ? 'or=(scope.eq.global,deal_id.eq.' + s.activeDealId + ')' : 'scope=eq.global'), jwt),
         ]);
         const prod = prodRow[0];
         s.productContent = (prod && prod.content) || '';
+        s.productMetrics = (prod && prod.metrics) || null;   // what THIS playbook listens for and works out
         s.activeProductName = (prod && prod.name) || '';
         // remember what was actually sold to this client, so the next call with them opens on
         // the right product instead of whichever one happens to be oldest
@@ -2175,6 +2253,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
-  stripRepeatOpener, repeatsOpener, extractFigures, figuresBlock,
+  stripRepeatOpener, repeatsOpener, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS,
   deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };
