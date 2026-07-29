@@ -92,7 +92,7 @@ fear, and the coach should isolate that rather than defend the software. Good be
 
 > **Dave:** "Alright. So how much is this even gonna run me?"
 
-*(pause — the closer gives $4,000 setup + $797/mo; "four thousand one time" is fine to say now)*
+*(pause — the closer gives $4,000 setup + $799/mo; "four thousand one time" is fine to say now)*
 
 > **Dave:** "Four grand? That's a lot right now."
 

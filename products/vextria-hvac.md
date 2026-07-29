@@ -68,7 +68,7 @@ handling the next objection.
   shop with an industry average — you'll win the point and lose the deal.
 
 ## Pricing (LAUNCH — locked)
-- **Setup (one-time): $4,000.** Floor **$3,500** — and only drop there in TRADE (a testimonial, referrals, or a faster commitment), never a plain discount. Monthly retainer: **$797/mo (Pro).** Flat + fair-use cap.
+- **Setup (one-time): $4,000.** Floor **$3,500** — and only drop there in TRADE (a testimonial, referrals, or a faster commitment), never a plain discount. Monthly retainer: **$799/mo (Pro).** Flat + fair-use cap.
 - Anchor high first: a human receptionist is $2,500-4,000/mo, one call at a time, 9-5 only.
 - Founding-client framing allowed: "taking a few founding clients at this rate before it goes up."
 - Gate the exact number until after the demo/value is built if the moment allows.
@@ -150,5 +150,5 @@ Never as mid-sentence filler, never twice in one line, never in two cards in a r
 ## The close being pushed on this call
 Book the setup on the call. Assumptive: "Want me to get you live this week?"
 Close with risk reversal: **"Live in days, month-to-month, 30-day money-back. The risk's on
-me, not you."** Setup $4,000 (floor $3,500 in trade) + $797/mo. Don't let it drift to "email me info" — owners decide
+me, not you."** Setup $4,000 (floor $3,500 in trade) + $799/mo. Don't let it drift to "email me info" — owners decide
 fast; get the concrete next step (setup date / deposit) before the call ends.
