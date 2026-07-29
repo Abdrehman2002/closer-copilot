@@ -681,12 +681,19 @@ function moneyIn(seg) {
   // techs") can never be mistaken for a price.
   const bare = seg.match(/\$\s*(\d{1,2})(?!\d|[.,]\d)/);
   if (bare) { const v = parseInt(bare[1], 10) * 1000; if (v >= 1000 && v <= 1000000) return v; }
+  // A few-hundred-dollar value is real for some businesses — a web designer's customer is worth
+  // $500, not $500,000. Only with an explicit "$", so a bare "300 jobs a year" can never be
+  // mistaken for a price.
+  const small = seg.match(/\$\s*(\d{3})(?!\d|[.,]\d)/);
+  if (small) { const v = parseInt(small[1], 10); if (v >= 100) return v; }
   return null;
 }
 
 // Counts round DOWN and money rounds to nearest: 180 x 27% is 48.6 missed calls, and telling a
 // buyer 49 is inflating his own problem back at him. Overstating is the same failure as inventing.
-const fmtNum = n => Math.floor(n).toLocaleString('en-US');
+// nudge before flooring: 0.03 - 0.01 is 0.0199999... in binary, and 10,000 x that floored to
+// 199 instead of 200. Wrong by one is still wrong when you say it to a buyer.
+const fmtNum = n => Math.floor(n + 1e-9).toLocaleString('en-US');
 const fmtMoney = n => '$' + Math.round(n).toLocaleString('en-US');
 
 // Run the playbook's own steps and write the answers out as plain sourced facts. An empty block
@@ -714,6 +721,7 @@ function figuresBlock(f, cfg) {
     if (step.name) vars[step.name] = v;
     if (!step.say) continue;
     const text = String(step.say)
+      .replace(/\$\s*\{x\}/g, '{x}')            // a template that wrote its own $ must not get two
       .replace(/\{x\}/g, step.money ? fmtMoney(v) : fmtNum(v))
       .replace(/\{volumeNoun\}/g, volumeNoun)
       .replace(/\{valueNoun\}/g, valueNoun)
@@ -1287,6 +1295,80 @@ Rules: use ONLY facts from their answers — NEVER invent prices, proof, guarant
   return { text: (j.choices[0].message.content || '').trim(), usage: j.usage };
 }
 
+// Turn the seller's plain-English answer about numbers into the metrics config the extractor and
+// the calculator run off. The MODEL only shapes the config — it never computes anything. Every
+// figure on a live call still comes out of evalExpr, because the model gets arithmetic wrong.
+async function compileMetrics(answers) {
+  const said = String((answers && answers.numbers) || '').trim();
+  if (!said) return null;
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: ANALYSIS_MODEL, temperature: 0.1, max_tokens: 700,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `Turn a seller's description of the numbers they need from a prospect into JSON for a live sales coach.
+
+Return ONLY this shape:
+{
+  "listen": {
+    "volume": { "noun": "<plural noun they COUNT, e.g. calls, roles, leads>", "words": ["<words a prospect would actually say>"] },
+    "value":  { "noun": "<what ONE of them is worth, e.g. job, placement fee>", "words": ["<words a prospect would actually say>"] }
+  },
+  "steps": [
+    { "name": "perMonth", "expr": "volumeMonth", "say": "{volume} {volumeNoun} per {period} = about {x} a month" },
+    { "name": "<name>", "expr": "<formula>", "say": "<sentence with {x}>" },
+    { "name": "<name>", "expr": "<formula>", "money": true, "needs": "value", "say": "<sentence with {x}>" }
+  ],
+  "example": { "volume": <typical number>, "period": "week|month|day", "value": <typical amount in whole dollars> }
+}
+
+FORMULA RULES — these are evaluated by a plain calculator, not by you:
+- Allowed: numbers, + - * / ( ) %, and names already defined ABOVE in the same steps list.
+- Always available: volume (as stated), volumeMonth (normalised to per month), value.
+- No functions, no text, no units inside the formula.
+- Any step whose sentence states MONEY must set "money": true and "needs": "value".
+- Be CONSERVATIVE. Understate the loss. Overstating a buyer's problem back at them is the same
+  failure as inventing it.
+- "say" is read aloud, so keep it short and natural. Use {x} for this step's result.
+- NEVER write a currency symbol before {x}. Money is already formatted, so a dollar sign of your
+  own comes out doubled.
+- NEVER normalise a period yourself. Do NOT write "volume * 4" — use volumeMonth, which is already
+  per month whatever period they answered in. Writing the multiplier yourself breaks the moment a
+  prospect answers monthly instead of weekly.
+- An intermediate step that would sound pointless out loud ("the conversion gap is 0.02") must have
+  NO "say" field at all. Only give "say" to steps worth speaking.
+
+WORDS RULE — this decides whether it hears them at all:
+"words" must be SINGLE nouns a prospect actually says out loud — ["calls","leads","enquiries"],
+["roles","openings","vacancies"], ["visitors","traffic"]. Never phrases like "calls they get" or
+"what one job is worth": those never appear in speech and the whole feature silently does nothing.` },
+        { role: 'user', content: 'They sell: ' + String((answers && answers.offer) || '(not given)') +
+          '\n\nWhat they said about numbers:\n' + said }
+      ]
+    })
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message);
+  let cfg = null;
+  try { cfg = JSON.parse(j.choices[0].message.content || '{}'); } catch { return null; }
+  if (!cfg || !cfg.listen || !Array.isArray(cfg.steps) || !cfg.steps.length) return null;
+
+  // Prove it works before it can ever reach a call: run the seller's own formulas on the example
+  // figures and hand back the exact sentence the coach would produce. A formula that cannot be
+  // evaluated is dropped here rather than silently producing nothing mid-conversation.
+  const ex = cfg.example || {};
+  const preview = figuresBlock(
+    { volume: Number(ex.volume) || 0, period: ex.period || 'week', value: Number(ex.value) || 0 },
+    cfg
+  );
+  const lines = preview
+    ? preview.split('\n').filter(l => l.startsWith('- ')).map(l => l.slice(2))
+    : [];
+  return { metrics: cfg, preview: lines, usage: j.usage };
+}
+
 // pre-call tactical battle plan — runs once before each call, spends the best model
 // (not latency sensitive, this is the moat) synthesizing closer + product + Client Brain
 // into a short opening move / predicted objection / close play the closer reads before dialing
@@ -1534,16 +1616,20 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, { products, activeProductId: s.activeProductId });
       }
       if (urlPath === '/api/products' && req.method === 'POST') {
-        const { id, name, content } = await readBody(req);
+        const { id, name, content, metrics } = await readBody(req);
         if (!name) return sendJson(res, { error: 'name required' }, 400);
+        // only overwrite the metrics config when one is actually sent — editing a playbook's text
+        // must never silently wipe the loss maths attached to it
+        const patch = { name, content };
+        if (metrics !== undefined) patch.metrics = metrics;
         let row;
-        if (id) row = (await sbRest('products?id=eq.' + id, jwt, { method: 'PATCH', body: { name, content } }))[0];
-        else row = (await sbRest('products', jwt, { method: 'POST', body: { user_id: user.id, name, content: content || '' } }))[0];
-        if (s.activeProductId === row.id) s.productContent = row.content;
+        if (id) row = (await sbRest('products?id=eq.' + id, jwt, { method: 'PATCH', body: patch }))[0];
+        else row = (await sbRest('products', jwt, { method: 'POST', body: { user_id: user.id, name, content: content || '', metrics: metrics || null } }))[0];
+        if (s.activeProductId === row.id) { s.productContent = row.content; s.productMetrics = row.metrics || null; }
         return sendJson(res, { ok: true, product: { id: row.id, name: row.name } });
       }
       if (seg[0] === 'api' && seg[1] === 'products' && seg[2] && req.method === 'GET') {
-        const rows = await sbRest('products?id=eq.' + seg[2] + '&select=id,name,content', jwt);
+        const rows = await sbRest('products?id=eq.' + seg[2] + '&select=id,name,content,metrics', jwt);
         return sendJson(res, rows[0] || {});
       }
       if (seg[0] === 'api' && seg[1] === 'products' && seg[2] && req.method === 'DELETE') {
@@ -1560,7 +1646,17 @@ const server = http.createServer(async (req, res) => {
         const { answers } = await readBody(req);
         const out = await compilePlaybook(answers || {});
         logUsage(jwt, user.id, null, 'playbook', ANALYSIS_MODEL, out.usage);
-        return sendJson(res, { ok: true, content: out.text });
+        // the loss maths is compiled alongside the playbook; a failure here must not cost them
+        // the playbook they just spent ten minutes writing
+        let metrics = null, metricsPreview = [];
+        try {
+          const m = await compileMetrics(answers || {});
+          if (m) {
+            metrics = m.metrics; metricsPreview = m.preview;
+            logUsage(jwt, user.id, null, 'playbook_metrics', ANALYSIS_MODEL, m.usage);
+          }
+        } catch (e) { console.error('[metrics]', e.message); }
+        return sendJson(res, { ok: true, content: out.text, metrics, metricsPreview });
       }
 
       // pre-made playbooks a new user can start from instead of the interview
@@ -2253,6 +2349,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
-  stripRepeatOpener, repeatsOpener, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS,
+  stripRepeatOpener, repeatsOpener, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics,
   deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };

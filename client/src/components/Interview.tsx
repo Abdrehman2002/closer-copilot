@@ -14,6 +14,7 @@ const QUESTIONS: Q[] = [
   { key: 'pain', q: "What's the #1 problem you solve — and what does NOT solving it cost them, in their terms?", ph: 'Missed calls become lost jobs — 5-6 a week, ~$300 each = real money walking away.' },
   { key: 'fear_trigger', q: "What's their #1 fear if they DON'T fix this — and what usually makes them finally say yes?", ph: "Fear: losing customers to a competitor who never misses a call. Trigger: after a bad month where they know exactly how many jobs slipped." },
   { key: 'objections', big: true, q: 'Your objections — list the ones you hear most, in the prospect\'s words, each with your best answer.', ph: '"It\'s too expensive" -> compared to one lost job a week it pays for itself.\n"AI sounds robotic" -> ...\n"I already have an answering service" -> ...' },
+  { key: 'numbers', big: true, q: 'Which numbers do you need a prospect to tell you — and how do you turn those into what the problem is costing them?', ph: 'I need how many calls they get a week, and what one job is worth.\nAbout 27% of calls get missed when they\'re busy — even two of those closing is what they\'re losing every month.' },
   { key: 'proof', q: 'What proof do you have — results, numbers, testimonials — and any guarantee?', ph: 'One client recovered 8 jobs in month one. 30-day money-back guarantee.' },
   { key: 'competition', q: 'What else might they consider (including doing nothing), and why are you better?', ph: 'Cheap answering services just take messages; voicemail loses the job; we book it.' },
   { key: 'close', q: 'What EXACTLY are you asking them to do on the call — and your price, plus any REAL urgency?', ph: 'Start a paid pilot today. $1,400 setup + first month. A few onboarding slots left this month.' },
@@ -26,6 +27,8 @@ export function Interview({ onDone }: { onDone: (id: string, name: string) => vo
   const [val, setVal] = useState('')
   const [err, setErr] = useState('')
   const [building, setBuilding] = useState(false)
+  const [preview, setPreview] = useState<string[] | null>(null)
+  const [pending, setPending] = useState<{ id: string; name: string } | null>(null)
 
   const item = QUESTIONS[qi]
 
@@ -38,10 +41,40 @@ export function Interview({ onDone }: { onDone: (id: string, name: string) => vo
   const compile = async (a: Record<string, string>) => {
     setBuilding(true)
     try {
-      const c = await api<{ content: string }>('/api/playbook/compile', { answers: a })
-      const r = await api<{ product: { id: string } }>('/api/products', { name: a.name || 'My playbook', content: c.content })
+      const c = await api<{ content: string; metrics: unknown; metricsPreview: string[] }>('/api/playbook/compile', { answers: a })
+      const r = await api<{ product: { id: string } }>('/api/products', { name: a.name || 'My playbook', content: c.content, metrics: c.metrics })
+      // Show the loss maths worked through on example figures BEFORE it can reach a call. If the
+      // formula reads wrong here, it reads wrong to a buyer — and by then it's been said out loud.
+      if (c.metricsPreview?.length) { setPreview(c.metricsPreview); setPending({ id: r.product.id, name: a.name || 'My playbook' }); return }
       onDone(r.product.id, a.name || 'My playbook')
     } catch (e: any) { setErr("Couldn't build it: " + e.message); setBuilding(false) }
+  }
+
+  // The loss maths, run through on example figures. This is the only chance to catch a formula
+  // that reads wrong before a prospect hears it.
+  if (preview && pending) {
+    return (
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-primary">Check the maths</div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          On a call, the moment they give you these numbers, the coach will hand you this — already worked out. Does it read right?
+        </p>
+        <div className="mt-3 rounded-xl border border-border bg-secondary/40 p-4">
+          <ul className="space-y-1.5 text-[14px]">
+            {preview.map((l, i) => <li key={i} className="flex gap-2"><span className="text-primary">•</span><span>{l}</span></li>)}
+          </ul>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Figures are examples. The coach only ever uses numbers the prospect actually says, and stays quiet if they haven't.
+        </p>
+        <div className="mt-4 flex gap-2">
+          <button onClick={() => onDone(pending.id, pending.name)}
+            className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground">Looks right</button>
+          <button onClick={() => { setPreview(null); setPending(null); setBuilding(false); setQi(QUESTIONS.findIndex(q => q.key === 'numbers')); setVal(answers.numbers || '') }}
+            className="rounded-lg border border-border px-4 py-2 text-sm font-semibold">Reword my answer</button>
+        </div>
+      </div>
+    )
   }
 
   if (building) {

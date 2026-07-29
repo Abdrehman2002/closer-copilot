@@ -228,13 +228,15 @@ function updatePip(c: { tone: string; line: string }) {
     .replace(/class="cl-cue"/g, 'style="font-size:12px;font-style:italic;color:#475569;background:#eef0f3;border-radius:5px;padding:1px 8px;margin:0 3px"')
     .replace(/class="cl-down"/g, 'style="color:hsl(214 95% 52%)"')
     .replace(/class="cl-up"/g, 'style="color:#b45309"')
-  // Tone leads, big and unmissable — you read HOW to say it before the words.
-  const toneIcon = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="vertical-align:-3px;margin-right:6px"><path d="M2 10v4M6 6v12M10 3v18M14 8v8M18 5v14M22 10v4"/></svg>'
+  // The tone sits at the HEAD OF THE SENTENCE, not on a row above it. On its own line the eye
+  // goes straight to the big text and skips it — the closer told us he was never reading it. One
+  // line of sight, register first, because there is under two seconds before the silence is heard.
   pc.innerHTML =
-    '<div style="padding:12px 18px"><span style="display:inline-flex;align-items:center;font-size:13.5px;font-weight:800;letter-spacing:.9px;color:#fff;background:' +
+    '<div style="padding:12px 18px;font-size:22px;font-weight:600;line-height:1.55">' +
+    '<span style="font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#fff;background:' +
     (silent ? '#b45309' : 'hsl(214 95% 52%)') +
-    ';border-radius:7px;padding:5px 12px;margin-bottom:10px;text-transform:uppercase">' + toneIcon + (c.tone || '…') +
-    '</span><div style="font-size:22px;font-weight:600;line-height:1.5">' + line + '</div></div>'
+    ';border-radius:5px;padding:3px 9px;margin-right:9px;white-space:nowrap;vertical-align:middle">' +
+    (c.tone || '…') + '</span>' + line + '</div>'
 }
 
 // React binding
