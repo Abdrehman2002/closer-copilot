@@ -6,6 +6,7 @@ import type { Product, ClientRow, GoalOption } from '@/lib/types'
 import { liveCall } from '@/lib/liveCall'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PageSkeleton } from '@/components/Skeleton'
 
 const selectCls = 'flex h-10 w-full rounded-md border border-input bg-card px-3 text-sm focus-visible:outline-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25'
 
@@ -64,7 +65,13 @@ export default function NewCall() {
     } catch (e: any) { setMsg(e.message); setBusy(false) }
   }
 
-  if (ready && products.length === 0) {
+  // Every field on this page is either fetched or derived from the `?client=` query param
+  // (pickProduct/pickClient). Rendering before that resolves means an empty playbook dropdown,
+  // "+ New client..." instead of the real one, and the new-client-name fields popping in —
+  // then vanishing a moment later once the real selection lands. Wait for it instead.
+  if (!ready) return <PageSkeleton />
+
+  if (products.length === 0) {
     return (
       <div className="mx-auto max-w-[560px] px-8 py-7">
         <h2 className="mb-3 text-xl font-bold tracking-tight">New Call</h2>
