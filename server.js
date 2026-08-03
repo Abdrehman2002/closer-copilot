@@ -2362,19 +2362,35 @@ const server = http.createServer(async (req, res) => {
   const rel = urlPath === '/' ? 'index.html' : urlPath.slice(1);
   const file = path.join(__dirname, 'public', path.normalize(rel));
   if (!file.startsWith(path.join(__dirname, 'public'))) { res.writeHead(403); return res.end(); }
+  // Cache the fingerprinted assets forever and the HTML shell never.
+  //
+  // With no headers at all a browser is free to hold index.html indefinitely, and that shell
+  // names the exact hashed chunks to load. After a deploy the old names are gone, so a stale
+  // shell renders the OLD app and then 404s fetching a chunk that no longer exists — which
+  // looked, on screen, like the page rendering correctly and then changing under you. A hard
+  // reload does not reliably fix it either, because the stale shell is what starts the chain.
+  //
+  // /assets/* filenames contain a content hash, so they are safe to cache immutably: any change
+  // to a file changes its name. index.html must be revalidated every time or a deploy never
+  // fully lands for anyone who already has the app open.
+  const isHashedAsset = /^\/assets\//.test(urlPath);
+  const cacheHeader = isHashedAsset
+    ? { 'Cache-Control': 'public, max-age=31536000, immutable' }
+    : { 'Cache-Control': 'no-cache' };   // revalidate, so a 304 is still cheap
+
   fs.readFile(file, (err, buf) => {
     if (err) {
       // SPA fallback: a route with no file extension → serve the app shell so client routing works
       if (!path.extname(file)) {
         return fs.readFile(path.join(__dirname, 'public', 'index.html'), (e2, html) => {
           if (e2) { res.writeHead(404); return res.end('not found'); }
-          res.writeHead(200, { 'Content-Type': 'text/html' });
+          res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' });
           res.end(html);
         });
       }
       res.writeHead(404); return res.end('not found');
     }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', ...cacheHeader });
     res.end(buf);
   });
 });
