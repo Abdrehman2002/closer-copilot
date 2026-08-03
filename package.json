@@ -3,9 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "bot": "node bot-worker.js",
+    "build:client": "cd client && npm install && npm run build"
   },
   "dependencies": {
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.62.1"
   }
 }

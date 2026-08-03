@@ -10,6 +10,7 @@ const path = require('path');
 // WebSocket (client, for the Deepgram relay) is imported from ws so it works on
 // Node 20 too — global WebSocket only exists from Node 22.
 const { WebSocketServer, WebSocket } = require('ws');
+const { costOf: adminCostOf } = require('./admin');   // one pricing table, shared with the admin panel
 
 // ---- tiny .env loader ----
 try {
@@ -164,6 +165,46 @@ function logUsage(jwt, userId, dealId, kind, model, usage) {
       cached_tokens: (usage.prompt_tokens_details && usage.prompt_tokens_details.cached_tokens) || 0
     }
   }).catch(e => console.error('[usage-log]', e.message));
+
+  // Draw the spend down against this account's credit balance. Deliberately NOT awaited and
+  // deliberately never throwing: this runs on the live coaching path, and a slow or failing
+  // ledger write must not cost the closer a card.
+  const spend = adminCostOf(model, usage.prompt_tokens || 0, usage.completion_tokens || 0);
+  if (spend > 0 && jwt) {
+    fetch(SUPA_URL + '/rest/v1/rpc/consume_credits', {
+      method: 'POST',
+      headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: spend })
+    }).catch(() => {});
+  }
+}
+
+// One non-streaming chat completion, metered like everything else. Shared by the notetaker so
+// meeting summaries bill and log the same way live coaching does.
+async function chatOnce(payload, log = {}) {
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json();
+  if (j.error) throw new Error(j.error.message || 'model call failed');
+  if (log.jwt) logUsage(log.jwt, log.userId, log.dealId || null, log.kind || 'meeting', payload.model, j.usage);
+  return (j.choices?.[0]?.message?.content || '').trim();
+}
+
+// true only when this account has credit enforcement switched ON and has actually run out.
+// Any error answers false — a billing lookup failing must never lock someone out of a call.
+async function creditsExhausted(jwt) {
+  try {
+    const r = await fetch(SUPA_URL + '/rest/v1/rpc/credits_exhausted', {
+      method: 'POST',
+      headers: { apikey: SUPA_KEY, Authorization: 'Bearer ' + jwt, 'Content-Type': 'application/json' },
+      body: '{}'
+    });
+    if (!r.ok) return false;
+    return (await r.json()) === true;
+  } catch { return false; }
 }
 
 const tokenCache = new Map();   // jwt -> {user, exp}
@@ -1688,11 +1729,50 @@ async function deepgramTranscribe(audioBuffer, contentType) {
   return (alt && alt.transcript || '').trim();
 }
 
+// ---- admin platform ----
+const admin = require('./admin')({
+  sbRest, sessions, SUPA_URL, SUPA_KEY, OPENAI_KEY, DG_KEY,
+  OPENAI_BASE: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+  LIVE_MODEL, ANALYSIS_MODEL, PREP_MODEL,
+  sendJson, readBody,
+});
+
+// ---- meeting notetaker (schedule -> prep -> optional bot -> notes) ----
+// admin reads the bot mode off this, so it is created after `admin` and linked back below
+const meetings = require('./meetings')({
+  sbRest, chatOnce, sendJson, readBody,
+  logActivity: (jwt, row) => admin.logActivity(jwt, row),
+  ANALYSIS_MODEL, PREP_MODEL,
+});
+admin.setBotMode(meetings.botMode);
+
 // ---- http + ws ----
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
 
 const server = http.createServer(async (req, res) => {
   const urlPath = req.url.split('?')[0];
+
+  // Request metrics + the admin activity log. Only mutations and failures are written — a
+  // successful GET is counted in memory and otherwise ignored, so the log stays readable and
+  // this costs nothing on the hot paths.
+  const reqStart = Date.now();
+  let logCtx = null;                       // set once the user resolves, below
+  res.on('finish', () => {
+    const ms = Date.now() - reqStart;
+    admin.recordRequest(urlPath, res.statusCode, ms);
+    if (!logCtx) return;
+    const failed = res.statusCode >= 400;
+    if (!failed && req.method === 'GET') return;
+    if (urlPath === '/api/admin/telemetry') return;      // never log the logger
+    admin.logActivity(logCtx.jwt, {
+      level: res.statusCode >= 500 ? 'error' : failed ? 'warn' : 'info',
+      category: urlPath.startsWith('/api/admin') ? 'admin' : 'api',
+      action: req.method + ' ' + urlPath,
+      user_id: logCtx.userId, target: '', ms,
+      ip: (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString().split(',')[0].trim(),
+      detail: { status: res.statusCode },
+    });
+  });
 
   try {
     if (urlPath === '/api/config' && req.method === 'GET') {
@@ -1709,6 +1789,11 @@ const server = http.createServer(async (req, res) => {
       const s = getSession(user.id);
       s.jwt = jwt;
       const seg = urlPath.split('/').filter(Boolean);   // e.g. ['api','clients','<id>']
+
+      logCtx = { jwt, userId: user.id };
+      if (await admin.handle(req, res, urlPath, user, jwt)) return;
+      meetings.remember(user.id, jwt);
+      if (await meetings.handle(req, res, urlPath, user, jwt, seg)) return;
 
       // ---- onboarding / profile ----
       if (urlPath === '/api/me' && req.method === 'GET') {
@@ -2020,7 +2105,12 @@ const server = http.createServer(async (req, res) => {
 
       // ---- call lifecycle ----
       if (urlPath === '/api/call/start' && req.method === 'POST') {
+        if (await creditsExhausted(jwt)) {
+          admin.logActivity(jwt, { level: 'warn', category: 'billing', action: 'blocked_no_credits', user_id: user.id });
+          return sendJson(res, { error: 'Out of credits - ask an admin to top up your balance.' }, 402);
+        }
         const { dealId, productId, goal } = await readBody(req);
+        admin.logActivity(jwt, { category: 'call', action: 'call_started', user_id: user.id, target: dealId || '', detail: { goal: goal || '' } });
         s.activeDealId = dealId || null;
         // The request is the ONLY source of truth for what is being sold. This used to be
         // `if (productId) s.activeProductId = productId`, which silently kept whatever product

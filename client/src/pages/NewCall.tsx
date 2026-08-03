@@ -34,9 +34,17 @@ export default function NewCall() {
       const pre = params.get('client')
       const preClient = pre ? (c.clients || []).find((x) => x.id === pre) : undefined
       setClientId(preClient ? pre! : '')
-      // Prefer what was sold to this client last time. Falling back to products[0] is how a
-      // Local SEO call ended up being coached as Lead Gen — the oldest product silently wins.
-      setProductId(preClient?.product_id || p.products?.[0]?.id || '')
+      // Precedence: an explicit ?product= (handed over from a scheduled meeting) beats what was
+      // sold to this client last time, which in turn beats products[0]. Falling straight back to
+      // products[0] is how a Local SEO call ended up coached as Lead Gen — the oldest product
+      // silently wins, and nobody notices until the coach pitches the wrong service.
+      const askedProduct = params.get('product')
+      const valid = (id?: string | null) => !!id && (p.products || []).some((x) => x.id === id)
+      setProductId(
+        (valid(askedProduct) && askedProduct) ||
+        (valid(preClient?.product_id) && preClient!.product_id!) ||
+        p.products?.[0]?.id || ''
+      )
       setReady(true)
     })
   }, [])
