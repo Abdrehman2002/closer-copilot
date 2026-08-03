@@ -1804,6 +1804,20 @@ const server = http.createServer(async (req, res) => {
       meetings.remember(user.id, jwt);
       if (await meetings.handle(req, res, urlPath, user, jwt, seg)) return;
 
+      // ---- notices: flags + announcements for the sidebar, open to any signed-in user ----
+      // (the admin-only equivalent, /api/admin/flags, 403s for non-admins — this is the
+      // read-only public view every page fetches on mount)
+      if (urlPath === '/api/notices' && req.method === 'GET') {
+        const [flags, announcements] = await Promise.all([
+          sbRest('feature_flags?select=key,enabled', jwt).catch(() => []),
+          sbRest('announcements?select=id,title,body,level&active=eq.true&order=created_at.desc&limit=10', jwt).catch(() => []),
+        ]);
+        return sendJson(res, {
+          announcements,
+          flags: Object.fromEntries(flags.map(f => [f.key, f.enabled])),
+        });
+      }
+
       // ---- onboarding / profile ----
       if (urlPath === '/api/me' && req.method === 'GET') {
         const [prof, prods, cls] = await Promise.all([
