@@ -1119,13 +1119,23 @@ async function trackDiscovery(s) {
 }
 
 // ---- post-call extraction → per-client Markdown "Client Brain" ----
+// Written in note form, not prose. This document is read by a MODEL in the middle of a live
+// call, and it sits in the prompt on every single turn — so every connective word ("the
+// prospect is concerned about...") is paid for repeatedly and carries no information the model
+// needed. Mike's brain reached ~1,466 tokens after 18 calls and was being truncated mid-sentence
+// against the generation cap, silently dropping the final "how to close them" section on the
+// most-worked deal in the account. Fragments fix both the cost and the truncation.
 const BRAIN_TEMPLATE = `# {Client name} — {Company}
-**Snapshot:** one-line status + how warm the deal is.
+**Snapshot:** HOT|WARM|COLD · 3-6 words on where the deal stands
 ## Their situation & pain
+- facts and figures, fragments only: "45 calls/wk (~180/mo) · 15 missed/mo · ticket ~$9k"
 ## Objections raised
+- "<objection in 2-5 words> · OPEN" or "<objection> · HANDLED (<how, ≤6 words>)"
 ## What they care about / buying signals
 ## Stakeholders & decision process
 ## Commitments
+- us: <what we owe them>
+- them: <what they owe us>
 ## Where we left off / agreed next step
 ## How to close them next call`;
 
@@ -1150,9 +1160,14 @@ function parseBrain(md) {
   md = String(md || '');
   const snapshot = (md.match(/\*\*Snapshot:\*\*\s*(.+)/i) || [])[1]?.trim() || '';
   const objSection = sectionOf(md, 'Objections raised');
+  // Two shapes in the wild: the old "— status: open, <prose>" and the compact "· OPEN".
+  // Existing brains are never rewritten, so both have to keep parsing.
   const openObjections = objSection.split('\n')
-    .filter(l => /^[-*]/.test(l.trim()) && /open/i.test(l))
-    .map(l => l.replace(/^[-*]\s*/, '').replace(/\s*[—-]\s*status:.*$/i, '').trim())
+    .filter(l => /^[-*]/.test(l.trim()) && /\bopen\b/i.test(l))
+    .map(l => l.replace(/^[-*]\s*/, '')
+      .replace(/\s*[—-]\s*status:.*$/i, '')      // old: "price too high — status: open, ..."
+      .replace(/\s*[·|]\s*open\b.*$/i, '')       // new: "price too high · OPEN"
+      .trim())
     .filter(Boolean).slice(0, 5);
   const nextStep = sectionOf(md, 'Where we left off / agreed next step').replace(/^[-*]\s*/gm, '').trim();
   const howToClose = sectionOf(md, 'How to close them next call').replace(/^[-*]\s*/gm, '').trim();
@@ -1162,10 +1177,18 @@ function parseBrain(md) {
     if (/^us\s*:/i.test(t)) commitmentsUs.push(t.replace(/^us\s*:\s*/i, ''));
     else if (/^them\s*:/i.test(t)) commitmentsThem.push(t.replace(/^them\s*:\s*/i, ''));
   }
-  const hay = (snapshot + ' ' + md).toLowerCase();
-  let warmth = 'warming';
-  if (/\b(cold|stalled|hesitant|resistant|not ready|not interested|going nowhere|skeptical|unconvinced)\b/.test(hay)) warmth = 'cold';
-  if (/\b(hot|ready to (close|buy|move|sign|start|go)|eager|excited|very interested|strong interest|keen|sold|warm)\b/.test(hay)) warmth = 'hot';
+  // The compact snapshot states warmth outright ("WARM · price-sensitive · needs ROI proof"),
+  // which beats guessing from keywords — the old scan read the word "skeptical" anywhere in the
+  // document as the whole deal being cold, even when it described one handled objection.
+  const stated = (snapshot.match(/^\s*(HOT|WARM|COLD)\b/i) || [])[1];
+  let warmth;
+  if (stated) warmth = stated.toLowerCase() === 'warm' ? 'warming' : stated.toLowerCase();
+  else {
+    const hay = (snapshot + ' ' + md).toLowerCase();
+    warmth = 'warming';
+    if (/\b(cold|stalled|hesitant|resistant|not ready|not interested|going nowhere|skeptical|unconvinced)\b/.test(hay)) warmth = 'cold';
+    if (/\b(hot|ready to (close|buy|move|sign|start|go)|eager|excited|very interested|strong interest|keen|sold|warm)\b/.test(hay)) warmth = 'hot';
+  }
   return { snapshot, openObjections, nextStep, howToClose, warmth, commitmentsUs, commitmentsThem };
 }
 
@@ -1231,6 +1254,44 @@ const STOPWORDS = new Set(['the','a','an','is','it','to','of','for','on','we','y
 const kwTokens = (s) => (String(s || '').toLowerCase().match(/[a-z]+/g) || []).filter(w => w.length > 2 && !STOPWORDS.has(w));
 const objKey = (s) => kwTokens(s).slice(0, 4).join(' ');
 
+// Enforce the size caps in code, because instructions alone don't hold them. Two rounds of
+// tightening the wording still came back over the word cap and still recorded a bullet about our
+// own transcription quality — the same lesson as the repetition tic: a model will not reliably
+// self-police a count.
+//
+// This trims by DROPPING WHOLE BULLETS from the end of a section, never by cutting text
+// mid-stream. That distinction matters: truncation is what silently ate the "how to close them"
+// section off Mike's brain in the first place.
+const BRAIN_CAPS = {
+  'Their situation & pain': 6,
+  'Objections raised': 6,
+  'What they care about / buying signals': 4,
+  'Stakeholders & decision process': 3,
+  'Commitments': 4,
+  'Where we left off / agreed next step': 3,
+  'How to close them next call': 3,
+};
+// Notes about the coaching tool itself are our problem, not a fact about the buyer, and they were
+// surviving into the memo that gets read on every turn of every future call.
+const BRAIN_NOISE = /\b(transcription|transcrib|the coach|coaching tool|this tool|the app|the software|model change|prompt)\b/i;
+
+function trimBrain(md) {
+  const lines = String(md || '').split('\n');
+  const out = [];
+  let cap = Infinity, kept = 0;
+  for (const line of lines) {
+    const h = line.match(/^##\s+(.+?)\s*$/);
+    if (h) { cap = BRAIN_CAPS[h[1]] ?? Infinity; kept = 0; out.push(line); continue; }
+    if (/^\s*[-*]\s+/.test(line)) {
+      if (BRAIN_NOISE.test(line)) continue;
+      if (kept >= cap) continue;
+      kept++;
+    }
+    out.push(line);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 async function extractClientBrain(prevMemoryMd, turns, productName, clientName, company) {
   const transcript = turns.map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text).join('\n');
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -1250,10 +1311,26 @@ Use EXACTLY these sections and headings, in this order:
 ${BRAIN_TEMPLATE}
 
 Rules:
-- MERGE: carry forward everything from the previous Brain that still holds; update objection status; add new facts; sharpen the close plan.
-- Under "Objections raised", each bullet: the objection — status: open OR handled, and how.
+- MERGE, THEN PRUNE. Carry forward what still holds, update objection status, add new facts —
+  but this is a working memo, NOT a log. Every call it must come out roughly the same length,
+  never steadily longer.
+- WRITE IN FRAGMENTS, NOT SENTENCES. This is read by a live coach mid-call, so every word costs.
+  Drop "the prospect", "is concerned about", "they mentioned that", "currently". Numbers as
+  digits. Use " · " to pack related facts onto one line.
+    BAD:  "- Receives about 40-45 calls weekly, more in summer (~180/month)."
+    GOOD: "- 45 calls/wk (~180/mo) · peaks in summer"
+    BAD:  "- Already paying for a service — status: open, prospect unclear on current service
+           effectiveness and questions paying more."
+    GOOD: "- already paying a service · OPEN"
+- Objections: "<objection, 2-5 words> · OPEN" or "<objection> · HANDLED (<how, ≤6 words>)".
+- HARD CAPS, obey these before anything else: EVERY bullet ≤ 12 words. Max 6 bullets per section,
+  max 3 under "Where we left off" and "How to close them next call". Whole document under 250
+  words. If you are at a cap, cut the least useful line — never extend the document.
+- DROP, do not carry forward: objections handled more than two calls ago; facts a newer fact has
+  replaced; ANYTHING about the coaching software, the transcription, or this tool's own behaviour
+  (that is our problem, not a fact about the buyer); and generic filler like "wants good ROI"
+  that would be true of every prospect alive.
 - Factual only — only what was actually said or clearly implied. Never invent.
-- Keep every line short; this is read mid-call. Use "- " bullets under each section.
 - Output ONLY the Markdown document — no preamble, no code fences.`
         },
         {
@@ -1272,7 +1349,7 @@ ${transcript}`
   });
   const j = await r.json();
   if (j.error) throw new Error(j.error.message);
-  return { text: (j.choices[0].message.content || '').trim(), usage: j.usage };
+  return { text: trimBrain(j.choices[0].message.content || ''), usage: j.usage };
 }
 
 // compile a salesperson's interview answers into a rich structured playbook the coach reads
@@ -2407,5 +2484,5 @@ if (require.main === module) {
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
   stripRepeatOpener, repeatsOpener, warmPromptCache, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
-  deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
+  deliveryStats, parseBrain, extractClientBrain, trimBrain, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };
