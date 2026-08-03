@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { pickProduct } from '@/lib/pickProduct'
 import type { Product, ClientRow, GoalOption } from '@/lib/types'
 import { liveCall } from '@/lib/liveCall'
 import { Button } from '@/components/ui/button'
@@ -34,26 +35,18 @@ export default function NewCall() {
       const pre = params.get('client')
       const preClient = pre ? (c.clients || []).find((x) => x.id === pre) : undefined
       setClientId(preClient ? pre! : '')
-      // Precedence: an explicit ?product= (handed over from a scheduled meeting) beats what was
-      // sold to this client last time, which in turn beats products[0]. Falling straight back to
-      // products[0] is how a Local SEO call ended up coached as Lead Gen — the oldest product
-      // silently wins, and nobody notices until the coach pitches the wrong service.
-      const askedProduct = params.get('product')
-      const valid = (id?: string | null) => !!id && (p.products || []).some((x) => x.id === id)
-      setProductId(
-        (valid(askedProduct) && askedProduct) ||
-        (valid(preClient?.product_id) && preClient!.product_id!) ||
-        p.products?.[0]?.id || ''
-      )
+      setProductId(pickProduct(params.get('product'), preClient?.product_id, p.products))
       setReady(true)
     })
   }, [])
 
-  // switching client re-points the playbook at whatever was sold to them before
+  // switching client re-points the playbook at whatever was sold to them before. Same resolver,
+  // so the two paths can never drift apart — but keep the current pick if that client has no
+  // history, rather than yanking the dropdown back to products[0].
   const pickClient = (id: string) => {
     setClientId(id)
     const prev = clients.find((c) => c.id === id)?.product_id
-    if (prev && products.some((p) => p.id === prev)) setProductId(prev)
+    setProductId(pickProduct(prev, productId, products))
   }
 
   const start = async () => {
