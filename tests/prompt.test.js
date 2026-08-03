@@ -93,6 +93,22 @@ t.group('the merged admin + meetings modules load and expose what server.js wire
   t.ok('meetings gives server.js a handle()', typeof m.handle === 'function');
   t.ok('and a botMode()', typeof m.botMode === 'function');
   t.eq('with no provider configured it is manual — nothing can join a call', m.botMode(), 'manual');
+  // The Meetings page treats anything that is not 'self' or 'recall' as manual, so that a failed
+  // or half-loaded response can never flash the bot controls. That inversion is only safe while
+  // those remain the only two "a provider IS configured" values.
+  t.ok('botMode only ever returns one of three known values',
+    ['self', 'recall', 'manual'].includes(m.botMode()));
+}
+
+t.group('the client can rely on that contract');
+{
+  const manualFrom = (botMode) => botMode !== 'self' && botMode !== 'recall';
+  t.ok('manual', manualFrom('manual'));
+  t.no('self is a real provider', manualFrom('self'));
+  t.no('recall is a real provider', manualFrom('recall'));
+  t.ok('a missing field reads as manual, not as a configured bot', manualFrom(undefined));
+  t.ok('an error response reads as manual', manualFrom(null));
+  t.ok('an unknown future value reads as manual', manualFrom('something-new'));
 }
 
 module.exports = t.report();

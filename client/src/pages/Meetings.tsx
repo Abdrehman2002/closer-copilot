@@ -52,7 +52,14 @@ export default function Meetings() {
   }, [load])
 
   if (!data) return <PageSkeleton />
-  const manual = data.botMode === 'manual'
+
+  // Manual unless a provider is EXPLICITLY confirmed. Deriving it as `botMode === 'manual'` meant
+  // anything unexpected — a failed request, a response with the field missing, a 401 while the
+  // auth session was still restoring — read as "a bot is configured", so the link box and the
+  // auto-join checkbox flashed up and were then snatched away when the real answer landed.
+  // Defaulting the safe way round means the worst case is a control appearing a moment late
+  // rather than one appearing and vanishing, and it can never offer bot controls on an error.
+  const manual = data.botMode !== 'self' && data.botMode !== 'recall'
 
   const create = async () => {
     if (!title.trim() && !url.trim()) return
