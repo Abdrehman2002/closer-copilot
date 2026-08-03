@@ -213,7 +213,7 @@ module.exports = function createMeetings(ctx) {
         body: {
           user_id: user.id, deal_id: b.dealId || null, product_id: b.productId || null,
           title: b.title || 'Untitled meeting', meeting_url: b.meeting_url || '',
-          platform: platformOf(b.meeting_url || ''),
+          platform: platformOf(b.meeting_url || ''), goal: b.goal || null,
           starts_at: b.starts_at || null, duration_min: b.duration_min || 30,
           auto_join: !!b.auto_join && botMode() !== 'manual',
         },
@@ -237,7 +237,7 @@ module.exports = function createMeetings(ctx) {
     if (req.method === 'PATCH' && !seg[3]) {
       const b = await readBody(req);
       const patch = {};
-      for (const k of ['title', 'meeting_url', 'starts_at', 'duration_min', 'auto_join', 'status', 'deal_id', 'product_id']) if (k in b) patch[k] = b[k];
+      for (const k of ['title', 'meeting_url', 'starts_at', 'duration_min', 'auto_join', 'status', 'deal_id', 'product_id', 'goal']) if (k in b) patch[k] = b[k];
       if (patch.meeting_url) patch.platform = platformOf(patch.meeting_url);
       const row = (await sbRest(`meetings?id=eq.${id}`, jwt, { method: 'PATCH', body: patch }))[0];
       sendJson(res, { ok: true, meeting: row });

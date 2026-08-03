@@ -37,6 +37,8 @@ export default function NewCall() {
       const preClient = pre ? (c.clients || []).find((x) => x.id === pre) : undefined
       setClientId(preClient ? pre! : '')
       setProductId(pickProduct(params.get('product'), preClient?.product_id, p.products))
+      const preGoal = params.get('goal')
+      if (preGoal && (cfg.goals || []).some((g: GoalOption) => g.id === preGoal)) setGoal(preGoal)
       setReady(true)
     })
   }, [])

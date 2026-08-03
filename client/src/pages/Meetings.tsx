@@ -34,6 +34,7 @@ const when = (iso?: string | null) => {
 export default function Meetings() {
   const [data, setData] = useState<{ meetings: any[]; botMode: string } | null>(null)
   const [clients, setClients] = useState<any[]>([])
+  const [goals, setGoals] = useState<{ id: string; label: string }[]>([])
   const [open, setOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState('')
   const navigate = useNavigate()
@@ -43,12 +44,14 @@ export default function Meetings() {
   const [url, setUrl] = useState('')
   const [startsAt, setStartsAt] = useState('')
   const [dealId, setDealId] = useState('')
+  const [goal, setGoal] = useState('')
   const [autoJoin, setAutoJoin] = useState(false)
 
   const load = useCallback(() => api<{ meetings: any[]; botMode: string }>('/api/meetings').then(setData), [])
   useEffect(() => {
     load()
     api<{ clients: any[] }>('/api/clients').then((r) => setClients(r.clients || [])).catch(() => {})
+    fetch('/api/config').then((r) => r.json()).then((cfg) => setGoals(cfg.goals || [])).catch(() => {})
   }, [load])
 
   if (!data) return <PageSkeleton />
@@ -68,9 +71,9 @@ export default function Meetings() {
       await api('/api/meetings', {
         title: title.trim() || 'Untitled meeting', meeting_url: url.trim(),
         starts_at: startsAt ? new Date(startsAt).toISOString() : null,
-        dealId: dealId || null, auto_join: autoJoin,
+        dealId: dealId || null, goal: goal || null, auto_join: autoJoin,
       })
-      setTitle(''); setUrl(''); setStartsAt(''); setDealId(''); setAutoJoin(false)
+      setTitle(''); setUrl(''); setStartsAt(''); setDealId(''); setGoal(''); setAutoJoin(false)
       load()
     } finally { setBusy('') }
   }
@@ -133,6 +136,10 @@ export default function Meetings() {
           <select className="h-10 rounded-md border border-input bg-card px-3 text-sm" value={dealId} onChange={(e) => setDealId(e.target.value)}>
             <option value="">Link to a client… (enables prep brief)</option>
             {clients.map((c) => <option key={c.id} value={c.id}>{c.name}{c.company ? ` — ${c.company}` : ''}</option>)}
+          </select>
+          <select className="h-10 rounded-md border border-input bg-card px-3 text-sm" value={goal} onChange={(e) => setGoal(e.target.value)}>
+            <option value="">What's the goal of this call?</option>
+            {goals.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
           </select>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -197,7 +204,7 @@ function Section({ title, empty, items, open, setOpen, act, del, busy, manual, n
                     <Video className="h-4 w-4" />
                   </a>
                 )}
-                <Button size="sm" variant="outline" onClick={() => navigate(`/new?client=${m.deal_id || ''}${m.product_id ? `&product=${m.product_id}` : ''}`)} title="Run this call with the live coach">
+                <Button size="sm" variant="outline" onClick={() => navigate(`/new?client=${m.deal_id || ''}${m.product_id ? `&product=${m.product_id}` : ''}${m.goal ? `&goal=${m.goal}` : ''}`)} title="Run this call with the live coach">
                   <Phone className="h-3.5 w-3.5" /> Start
                 </Button>
                 <button onClick={() => del(m.id)} className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-secondary hover:text-destructive">
