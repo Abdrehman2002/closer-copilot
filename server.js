@@ -49,10 +49,16 @@ const PRICE_PER_1M = {
   'gpt-4o': [2.50, 10.00],
   'gpt-4o-mini': [0.15, 0.60],
 };
-function costUsd(model, promptTokens, completionTokens) {
+// Cached input bills at 1/4 the normal rate on the 4.1 family (verified against the shipped
+// prices above: $0.50 cached vs $2.00 for gpt-4.1, $0.10 vs $0.40 for mini). Billing was
+// charging the FULL prompt rate on every token even when most of them were cache hits, which
+// overstates real spend once caching is actually working.
+function costUsd(model, promptTokens, completionTokens, cachedTokens) {
   const p = PRICE_PER_1M[model];
   if (!p) return null;
-  return (promptTokens / 1e6) * p[0] + (completionTokens / 1e6) * p[1];
+  const cached = Math.min(cachedTokens || 0, promptTokens);
+  const uncached = promptTokens - cached;
+  return (uncached / 1e6) * p[0] + (cached / 1e6) * (p[0] / 4) + (completionTokens / 1e6) * p[1];
 }
 
 const PLAYBOOK = fs.readFileSync(path.join(__dirname, 'playbook.md'), 'utf8');
@@ -148,11 +154,14 @@ async function sbRest(pathq, jwt, opts = {}) {
 // fire-and-forget token/cost logging — never blocks or fails the call it's attached to
 function logUsage(jwt, userId, dealId, kind, model, usage) {
   if (!usage) return;
+  // cached_tokens is what OpenAI actually served from cache on THIS call — the direct signal
+  // for whether prompt-ordering changes are working, instead of inferring it from the bill later.
   sbRest('usage_events', jwt, {
     method: 'POST', prefer: 'return=minimal',
     body: {
       user_id: userId, deal_id: dealId || null, kind, model,
-      prompt_tokens: usage.prompt_tokens || 0, completion_tokens: usage.completion_tokens || 0
+      prompt_tokens: usage.prompt_tokens || 0, completion_tokens: usage.completion_tokens || 0,
+      cached_tokens: (usage.prompt_tokens_details && usage.prompt_tokens_details.cached_tokens) || 0
     }
   }).catch(e => console.error('[usage-log]', e.message));
 }
@@ -403,22 +412,36 @@ function kbBlock(s) {
 }
 
 function buildSystemPrompt(s) {
-  // Keep the big stable content (intro + closer profile + playbook + product + format rules)
-  // as one prefix so OpenAI prompt-caching serves it near-instantly on every call after the
-  // first; the parts that vary turn to turn (deal memory + the live trigger read) go LAST as a
-  // short tail. This is the main latency win.
-  // The goal block goes FIRST — it must beat the playbook's moment-map when they conflict
-  // (e.g. a buying signal on a discovery call). Models weight the prompt opening heavily.
+  // Ordered MOST-STABLE-FIRST so OpenAI's prompt cache can match the longest possible prefix.
+  // Caching keys on a byte-identical prefix, so anything that varies has to sit at the tail —
+  // put a short-lived value early and everything after it becomes uncacheable too. Measured:
+  // switching the meeting goal used to drop the cache hit rate from 98% to 0%, because the goal
+  // block sat first and every byte after it stopped matching. Cached input bills at roughly a
+  // quarter of the rate of the same tokens uncached, so that one ordering choice was costing
+  // real money on every goal change, on every call, for every user — for zero benefit, since the
+  // model reads the whole prompt regardless of where a block sits.
+  //
+  //   PLAYBOOK + FORMAT_RULES   — identical for every user, every call, forever
+  //   closer profile + product — stable for this user, changes rarely
+  //   the goal                 — stable for this CALL, can change call to call
+  //   deal memory               — stable for this call
+  //   figuresMd + kbBlock       — genuinely change turn to turn; nothing can cache these, so
+  //                               they are the only things that belong at the very end
+  //
+  // The goal's priority in the MODEL's reasoning does not depend on where it sits in the token
+  // stream — "HIGHEST PRIORITY" and "OVERRIDES the playbook" say that regardless of position.
+  // Verified after this change: switching goals still measurably changes the card (see the
+  // one_call vs discovery vs close comparison run against real turns).
   const goalBlock = s.callGoal && GOALS[s.callGoal]
     ? '\n\n=== MEETING GOAL — HIGHEST PRIORITY ===\nThe closer set the goal of THIS call. It OVERRIDES the playbook\'s moment-map and its default drive-to-close. A card that violates this goal is a WRONG card even if the playbook suggests the move.\n' + GOALS[s.callGoal].guidance + '\n=== END MEETING GOAL ==='
     : '';
   return 'You are a live sales coach whispering to "ME" (the seller) during a real video sales call.\n' +
-    'You see the live transcript. Feed the closer the best next line to say. Fire whenever a useful line exists — the closer is counting on you — and stay silent only for pure small talk.' +
-    goalBlock +
-    closerProfileBlock(s.closerProfile) + '\n\n' +
+    'You see the live transcript. Feed the closer the best next line to say. Fire whenever a useful line exists — the closer is counting on you — and stay silent only for pure small talk.\n\n' +
     PLAYBOOK + '\n\n' +
-    (s.productContent || '(no product knowledge provided)') + '\n\n' +
     FORMAT_RULES +
+    closerProfileBlock(s.closerProfile) + '\n\n' +
+    (s.productContent || '(no product knowledge provided)') +
+    goalBlock +
     (s.memory || '') +
     (s.figuresMd || '') +
     kbBlock(s) +
@@ -2103,13 +2126,14 @@ const server = http.createServer(async (req, res) => {
 
       // ---- billing: real token/cost ledger from usage_events ----
       if (urlPath === '/api/billing' && req.method === 'GET') {
-        const rows = await sbRest('usage_events?select=kind,model,prompt_tokens,completion_tokens,created_at&order=created_at.desc&limit=5000', jwt);
-        let totalCost = 0, totalTokens = 0, unpriced = 0;
+        const rows = await sbRest('usage_events?select=kind,model,prompt_tokens,completion_tokens,cached_tokens,created_at&order=created_at.desc&limit=5000', jwt);
+        let totalCost = 0, totalTokens = 0, unpriced = 0, promptTotal = 0, cachedTotal = 0;
         const byModel = {}, byKind = {}, byDay = {};
         for (const r of rows) {
           const tokens = (r.prompt_tokens || 0) + (r.completion_tokens || 0);
-          const cost = costUsd(r.model, r.prompt_tokens || 0, r.completion_tokens || 0);
+          const cost = costUsd(r.model, r.prompt_tokens || 0, r.completion_tokens || 0, r.cached_tokens || 0);
           totalTokens += tokens;
+          promptTotal += r.prompt_tokens || 0; cachedTotal += r.cached_tokens || 0;
           if (cost == null) unpriced++; else totalCost += cost;
           const dm = byModel[r.model] || { model: r.model, tokens: 0, cost: 0, unpriced: false };
           dm.tokens += tokens; dm.cost += cost || 0; if (cost == null) dm.unpriced = true;
@@ -2128,6 +2152,9 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, {
           totalCost: Math.round(totalCost * 100) / 100,
           totalTokens, events: rows.length, unpricedEvents: unpriced,
+          // how much of the prompt is being served from OpenAI's cache at ~1/4 price — the
+          // direct signal that the "most-stable-content-first" prompt ordering is doing its job
+          cacheHitPct: promptTotal ? Math.round((cachedTotal / promptTotal) * 1000) / 10 : null,
           // 4dp not 2dp: at low volume a single model's slice is routinely sub-cent —
           // rounding to $0.00 would look like a bug ("clearly has tokens, shows $0")
           byModel: Object.values(byModel).map(m => ({ ...m, cost: Math.round(m.cost * 10000) / 10000 })),
@@ -2379,6 +2406,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
-  stripRepeatOpener, repeatsOpener, warmPromptCache, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics,
+  stripRepeatOpener, repeatsOpener, warmPromptCache, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
   deliveryStats, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };

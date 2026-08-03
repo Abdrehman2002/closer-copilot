@@ -153,6 +153,7 @@ export interface Billing {
   totalTokens: number
   events: number
   unpricedEvents: number
+  cacheHitPct: number | null
   byModel: { model: string; tokens: number; cost: number; unpriced: boolean }[]
   byKind: { kind: string; tokens: number; cost: number }[]
   last14: { day: string; cost: number }[]

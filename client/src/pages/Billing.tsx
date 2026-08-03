@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import type { Billing as BillingData } from '@/lib/types'
 import { DashboardSkeleton } from '@/components/Skeleton'
-import { DollarSign, Cpu, Layers, AlertTriangle } from 'lucide-react'
+import { DollarSign, Cpu, Layers, AlertTriangle, Zap } from 'lucide-react'
 
 const KIND_LABEL: Record<string, string> = {
   live: 'Live coaching', battle_plan: 'Battle plans', client_brain: 'Client Brain updates',
@@ -39,6 +39,13 @@ export default function Billing() {
           <div className="text-2xl font-extrabold tracking-tight">{b.events}</div>
           <div className="mt-0.5 text-xs font-medium text-muted-foreground">AI calls logged</div>
         </div>
+        {b.cacheHitPct != null && (
+          <div className="rounded-xl border border-border bg-card p-4" title="Share of prompt tokens served from OpenAI's cache, which bills at roughly 1/4 the normal rate. The stable parts of the prompt (playbook, product knowledge) are ordered first so this stays high even when the meeting goal changes call to call.">
+            <Zap className="mb-2 h-4 w-4 text-primary" />
+            <div className="text-2xl font-extrabold tracking-tight">{b.cacheHitPct}%</div>
+            <div className="mt-0.5 text-xs font-medium text-muted-foreground">Prompt cache hit rate</div>
+          </div>
+        )}
       </div>
 
       {b.unpricedEvents > 0 && (
