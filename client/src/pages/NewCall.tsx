@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
-import { pickProduct } from '@/lib/pickProduct'
+import { pickProduct } from '@/lib/pickProduct.js'
 import type { Product, ClientRow, GoalOption } from '@/lib/types'
 import { liveCall } from '@/lib/liveCall'
 import { Button } from '@/components/ui/button'

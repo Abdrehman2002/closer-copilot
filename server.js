@@ -1201,13 +1201,22 @@ function parseBrain(md) {
   md = String(md || '');
   const snapshot = (md.match(/\*\*Snapshot:\*\*\s*(.+)/i) || [])[1]?.trim() || '';
   const objSection = sectionOf(md, 'Objections raised');
-  // Two shapes in the wild: the old "— status: open, <prose>" and the compact "· OPEN".
-  // Existing brains are never rewritten, so both have to keep parsing.
+  // Two shapes in the wild — the old "— status: open, <prose>" and the compact "· OPEN" — and
+  // existing brains are never rewritten, so both have to keep parsing.
+  //
+  // Read the STATUS FIELD, never the line as a whole. Scanning for the word "open" anywhere in
+  // the bullet marked a HANDLED objection as still open the moment its explanation happened to
+  // contain the word: "budget — status: handled, open to month-to-month with a guarantee" was
+  // being shown back to the closer as a live objection, on a deal where it had been resolved.
+  const statusOf = (line) => {
+    const m = line.match(/[—–-]\s*status:\s*(open|handled)/i) || line.match(/[·|]\s*(open|handled)\b/i);
+    return m ? m[1].toLowerCase() : 'open';    // unmarked reads as open: better to be reminded
+  };
   const openObjections = objSection.split('\n')
-    .filter(l => /^[-*]/.test(l.trim()) && /\bopen\b/i.test(l))
+    .filter(l => /^[-*]/.test(l.trim()) && statusOf(l) === 'open')
     .map(l => l.replace(/^[-*]\s*/, '')
-      .replace(/\s*[—-]\s*status:.*$/i, '')      // old: "price too high — status: open, ..."
-      .replace(/\s*[·|]\s*open\b.*$/i, '')       // new: "price too high · OPEN"
+      .replace(/\s*[—–-]\s*status:.*$/i, '')     // old: "price too high — status: open, ..."
+      .replace(/\s*[·|]\s*(open|handled)\b.*$/i, '')  // new: "price too high · OPEN"
       .trim())
     .filter(Boolean).slice(0, 5);
   const nextStep = sectionOf(md, 'Where we left off / agreed next step').replace(/^[-*]\s*/gm, '').trim();
@@ -2573,6 +2582,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
-  stripRepeatOpener, repeatsOpener, warmPromptCache, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
+  stripRepeatOpener, repeatsOpener, safePartial, warmPromptCache, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
   deliveryStats, parseBrain, extractClientBrain, trimBrain, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
 };

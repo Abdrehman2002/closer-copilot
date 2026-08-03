@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node server.js",
     "bot": "node bot-worker.js",
-    "build:client": "cd client && npm install && npm run build"
+    "build:client": "cd client && npm install && npm run build",
+    "test": "node tests/run.js",
+    "check": "node --check server.js && node --check admin.js && node --check meetings.js && node --check bot-worker.js && node tests/run.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
