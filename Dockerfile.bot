@@ -1,0 +1,16 @@
+# Standalone container for bot-worker.js — the self-hosted, free meeting-notetaker bot.
+# Deployed as a SECOND Railway service alongside the main app (which stays on Nixpacks);
+# this one needs a real Chromium + its OS-level shared libs, which Nixpacks doesn't
+# provision reliably, so it gets its own Dockerfile.
+FROM node:22-slim
+
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm install --omit=dev
+RUN npx playwright install --with-deps chromium
+
+COPY bot-worker.js ./
+
+ENV BOT_HEADLESS=true
+EXPOSE 7802
+CMD ["node", "bot-worker.js"]

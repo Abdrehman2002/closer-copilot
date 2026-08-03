@@ -31,8 +31,10 @@
 
 const http = require('http');
 
-const PORT = Number(process.env.BOT_PORT || 7802);
-const HOST = process.env.BOT_HOST || '127.0.0.1';
+// Railway (and most PaaS) assign the listen port via $PORT and route to whatever's
+// bound on 0.0.0.0 — BOT_PORT/BOT_HOST stay as an override for local dev.
+const PORT = Number(process.env.PORT || process.env.BOT_PORT || 7802);
+const HOST = process.env.BOT_HOST || '0.0.0.0';
 const BOT_NAME = process.env.BOT_NAME || 'Closer Copilot Notetaker';
 const HEADLESS = process.env.BOT_HEADLESS !== 'false';
 const MAX_MIN = Number(process.env.BOT_MAX_MINUTES || 120);
