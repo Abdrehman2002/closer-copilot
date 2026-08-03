@@ -88,13 +88,21 @@ export default function Meetings() {
         Schedule a call and the copilot writes your prep brief, then turns the conversation into notes and action items.
       </p>
 
+      {/* States the current mode as a fact, not as a fault. Nothing here is broken: no bot is the
+          intended setup for a sales call, where a visible notetaker in the participant list is
+          exactly what makes a prospect go guarded. */}
       {manual && (
-        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3.5 text-[13px]">
-          <Bot className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+        <div className="mt-4 flex items-start gap-2.5 rounded-xl border border-border bg-secondary/40 p-3.5 text-[13px]">
+          <Bot className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <div>
-            <b className="text-amber-700 dark:text-amber-400">Auto-join isn't switched on.</b> A bot that joins Meet/Zoom for you
-            needs a meeting-bot provider — set <code className="rounded bg-secondary px-1">RECALL_API_KEY</code> in <code>.env</code> and restart.
-            Everything else works now: prep briefs, and notes generated from a call you run yourself with <b>Start Call</b>.
+            <b>No bot joins your calls.</b> You run the call yourself with <b>Start Call</b> and the coach listens
+            through your mic and browser tab — nothing appears in the participant list. Prep briefs and notes work
+            exactly as they should.
+            <span className="mt-1 block text-muted-foreground">
+              A bot that joins Meet or Zoom for you is optional, needs a provider
+              (<code className="rounded bg-secondary px-1">RECALL_API_KEY</code> or <code className="rounded bg-secondary px-1">BOT_WORKER_URL</code>),
+              and is visible to everyone on the call.
+            </span>
           </div>
         </div>
       )}
@@ -102,9 +110,18 @@ export default function Meetings() {
       {/* schedule */}
       <div className="mt-5 rounded-xl border border-border bg-card p-4">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold"><Plus className="h-4 w-4" /> Schedule a meeting</div>
+        {/* The meeting link and the auto-join toggle exist ONLY to tell a bot where to go. With no
+            provider configured nothing can ever use them, so showing a dead field and a greyed-out
+            checkbox just invites the question "why doesn't this do anything?". The live coach never
+            needs a link — it listens to your mic and your browser tab, so it doesn't care where the
+            meeting is, only what it can hear. */}
         <div className="grid gap-2 sm:grid-cols-2">
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Discovery call — Acme" />
-          <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste Meet / Zoom / Teams link" />
+          <div className={cn(manual && 'sm:col-span-2')}>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Discovery call — Acme" />
+          </div>
+          {!manual && (
+            <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste Meet / Zoom / Teams link" />
+          )}
           <Input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
           <select className="h-10 rounded-md border border-input bg-card px-3 text-sm" value={dealId} onChange={(e) => setDealId(e.target.value)}>
             <option value="">Link to a client… (enables prep brief)</option>
@@ -112,12 +129,20 @@ export default function Meetings() {
           </select>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <label className={cn('flex items-center gap-2 text-sm', manual && 'opacity-50')}>
-            <input type="checkbox" className="h-4 w-4 accent-primary" checked={autoJoin} disabled={manual}
-              onChange={(e) => setAutoJoin(e.target.checked)} />
-            Send a notetaker bot automatically
-          </label>
-          <Button size="sm" className="ml-auto" onClick={create} disabled={busy === 'create' || (!title.trim() && !url.trim())}>
+          {!manual && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="h-4 w-4 accent-primary" checked={autoJoin}
+                onChange={(e) => setAutoJoin(e.target.checked)} />
+              Send a notetaker bot automatically
+            </label>
+          )}
+          {manual && (
+            <span className="text-xs text-muted-foreground">
+              Link it to a client and you'll get a prep brief written from their history.
+            </span>
+          )}
+          <Button size="sm" className="ml-auto" onClick={create}
+            disabled={busy === 'create' || (manual ? !title.trim() : (!title.trim() && !url.trim()))}>
             {busy === 'create' ? 'Adding…' : 'Add meeting'}
           </Button>
         </div>
