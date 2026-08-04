@@ -25,6 +25,18 @@ block('4500 is NOT sourced', 'Setup is four thousand five hundred.');
 block('9000 unsourced — the fix must not blind the guard', 'Setup is nine thousand one time.');
 block('a fabricated client result', 'Our last client saw an extra fifteen thousand a month.');
 
+t.group('correct arithmetic on sourced numbers is not a hallucination');
+{
+  // No HVAC/product-specific language at all — this must hold for every playbook, not just the
+  // one with a dedicated missed-call calculator (DEFAULT_METRICS/figuresBlock is HVAC's own thing).
+  const NUMBERS_ONLY = 'They said 40 seats at ninety dollars a seat.';
+  const allowNum = (label, line) => t.ok(label, validateLine(line, NUMBERS_ONLY, '').ok);
+  const blockNum = (label, line) => t.no(label, validateLine(line, NUMBERS_ONLY, '').ok);
+  allowNum('forty times ninety is thirty-six hundred', 'That is thirty-six hundred a month.');
+  allowNum('and the sum of the same two numbers', 'That is a hundred and thirty a month, all in.');
+  blockNum('a number no combination of 40/90 produces is still caught', 'That is eleven thousand a month.');
+}
+
 t.group('never-say list is honoured');
 t.no('a forbidden phrase is refused',
   validateLine('Honestly, this is a no-brainer for you.', SOURCE, 'no-brainer, game changer').ok);

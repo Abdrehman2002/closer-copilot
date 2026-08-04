@@ -847,6 +847,30 @@ function pricedNumbers(line) {
 
 const ALWAYS_ALLOWED = new Set([24, 7, 100]);  // "24/7", "a hundred percent"
 
+// playbook.md ("USE THEIR NUMBERS") tells the coach to do arithmetic on the prospect's own stated
+// figures INSIDE the line, on every playbook — not just HVAC's dedicated missed-call calculator
+// (that's a separate, product-specific system: see DEFAULT_METRICS/figuresBlock, and it's the
+// exception, not how every product sources its numbers). Without this, a correct "40 seats at
+// ninety a month is thirty-six hundred" was rejected as unsourced just as hard as a hallucinated
+// one, forcing a wasted retry on GOOD math. This stays narrow — only what two sourced numbers can
+// actually produce — so a genuinely invented figure still has nothing to hide behind.
+function derivedNumbers(base) {
+  const vals = [...base].filter(v => v > 1 && v < 1e7);
+  const out = new Set();
+  const PERIOD_MULT = [4, 22, 12, 52];   // week→month, day→month, month→year, week→year (and back)
+  for (const v of vals) {
+    for (const m of PERIOD_MULT) { out.add(Math.round(v * m)); out.add(Math.round(v / m)); }
+  }
+  for (let i = 0; i < vals.length; i++) {
+    for (let j = i + 1; j < vals.length; j++) {
+      out.add(Math.round(vals[i] * vals[j]));
+      out.add(Math.round(vals[i] + vals[j]));
+      out.add(Math.round(Math.abs(vals[i] - vals[j])));
+    }
+  }
+  return out;
+}
+
 function validateLine(line, sources, neverSay) {
   // 1) never-say phrases are a hard no, wherever they came from
   for (const phrase of String(neverSay || '').split(/[,/;\n]+/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2)) {
@@ -854,16 +878,21 @@ function validateLine(line, sources, neverSay) {
       return { ok: false, issue: 'contains a never-say phrase: "' + phrase + '"' };
     }
   }
-  // 2) money/claim numbers must exist in the playbook / Client Brain / transcript
+  // 2) money/claim numbers must exist in the playbook / Client Brain / transcript, or be arithmetic
+  // derived from two numbers that do
   const priced = pricedNumbers(line);
   if (priced.size) {
     const allowed = numbersIn(sources);
+    let derived = null;   // computed lazily — most lines never need it
     for (const v of priced) {
       // Only 0/1 and known idioms (24/7, 100%) skip validation. Previously anything under
       // 13 was waved through, which let a hallucinated small money figure — "$5/mo",
       // "ten percent off" — slip out. In a money context those must be sourced too.
       if (v < 2 || ALWAYS_ALLOWED.has(v)) continue;
-      if (!allowed.has(v)) return { ok: false, issue: 'states a number not in the playbook/history: ' + v };
+      if (allowed.has(v)) continue;
+      if (!derived) derived = derivedNumbers(allowed);
+      if (derived.has(v)) continue;
+      return { ok: false, issue: 'states a number not in the playbook/history: ' + v };
     }
   }
   return { ok: true };
