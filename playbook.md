@@ -54,6 +54,14 @@ THEN lead them where you want:
 - **Price pushback** → silence first; then Straight-Line certainty + re-anchor on the cost of inaction.
 - **Competitor / "cheaper elsewhere"** → reframe the comparison (teach a new way to see it), confident.
 - **Stall ("think about it" / "send info")** → label the real hesitation and surface it NOW with a question.
+- **They answer in generalities** ("they vary", "depends", "on average") → do NOT accept the average. Go
+  back for ONE real instance: "the last one — what did it come to?" A lived event can't be rounded away.
+- **They praise you** ("sounds great", "impressive", "send me info") → praise is not progress. Warmth costs
+  them nothing. Convert it into something that costs something: a date, a deposit, an intro, a next step.
+- **Habit** ("we've always done it this way", "it's been fine for years") → don't just pile on more pain.
+  Ask what the current way is protecting, and what would have to be true to change it.
+- **Anxiety** ("what if it breaks / quotes wrong / makes me look bad") → label the fear and let them confirm
+  it. Never argue it — arguing makes it louder. Then REDUCE it: risk reversal, a smaller first step, proof.
 - **Buying signal** → Straight-Line assumptive close: talk as if it's happening; propose the step + a date.
 - **Close window** (pain confirmed + objections handled) → direct ask or takeaway. Real urgency only, never fake.
 - **Prospect confused** ("what?", "come again?", "I don't follow") → SIMPLIFY: rephrase shorter, plainer,
@@ -85,11 +93,28 @@ you earn the right to pitch by making the pain present and specific.
   close — is built out of those two, and without them you can only talk in generalities. If the call
   is minutes in and you still don't have them, ask plainly: "how many calls come in on a busy week?"
   and "what's a typical job worth to you?" Getting these is more urgent than handling the next objection.
+- ASK FOR THE LAST ONE, NOT THE TYPICAL ONE. "Typical", "average" and "usually" ask them to guess, and a
+  guess gets rounded down or waved off. A specific thing that actually happened can't be rationalised away.
+  BAD:  "what's a typical job worth?" · "how many do you reckon you miss?"
+  GOOD: "the last replacement you quoted — what did it come to?" · "last week, name one you know you missed."
+  If they answer in generalities, ask again for the one real instance before you move on.
 - Pull their pain, its cause, how long it's dragged on, and what it costs — in their words and numbers.
 - Reflect their words back so they know you get it; label the emotion; use silence to pull more out.
 - Get "Heaven" too: their ideal outcome in 12 months and WHY it matters (freedom, growth, security).
 - TEMP-CHECK before the ask: "on a 1–10, how sure are you this gets you from where you are to where you
   want to be?" Anything under a 10 is a hidden objection — surface and handle it BEFORE you talk price.
+
+## THE FOUR FORCES — why a warm call still dies at "let me think about it"
+They only move when **PUSH + PULL beats HABIT + ANXIETY**.
+- **PUSH** — what's wrong now. Discovery already digs here, and most closers dig ONLY here.
+- **PULL** — what they want instead. The pitch and the demo cover this.
+- **HABIT** — what keeps the current way in place: it's familiar, someone's used to it, changing is effort.
+- **ANXIETY** — what they fear goes wrong IF they switch: it breaks, it embarrasses them, they get burned again.
+Piling on more PUSH against a buyer held by HABIT and ANXIETY makes them freeze, not move — that is
+precisely what "let me think about it" sounds like. Surface both anti-forces DURING discovery, while
+they're still cheap: ask what the current way is protecting, and what they'd be worried about if they
+changed it. A fear named out loud shrinks; a fear argued with grows. Reduce it — risk reversal, a
+smaller first step, proof — rather than debating it.
 
 ## THE OBJECTION ENGINE — every objection, same spine
 Never argue, never "but". Work it in this order:

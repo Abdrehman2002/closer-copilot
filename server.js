@@ -296,6 +296,11 @@ const GOALS = {
     guidance: `THIS IS A DISCOVERY CALL. Success = they talked 70% of the time and you leave with their
 situation, pain (in THEIR numbers), buying process, and stakeholders on record — plus an agreed next step.
 - Favor: calibrated questions, pain-funnel, labels, silence after questions. One question per card.
+- Ask for the LAST real instance, never the typical one — "the last job you lost, what was it worth?"
+  beats "what's a typical job worth?", which only ever gets you a rounded-down guess.
+- Get their RESISTANCE on record too, not just their pain: what they'd be worried about if they changed,
+  and what keeps the current way in place. Those two kill more deals than price, and this is the cheapest
+  moment in the whole cycle to surface them.
 - Do NOT pitch features, do NOT present price, do NOT push for a decision — even on a buying signal,
   acknowledge it warmly and keep digging ("love that — before we go there, help me understand…").
 - EVEN IF THEY DIRECTLY ASK for price or "what it takes to get started": do NOT answer with numbers.
@@ -1145,6 +1150,12 @@ const DISCOVERY_PILLARS = [
   { key: 'pain', label: 'Pain', q: 'the core problem they actually want solved' },
   { key: 'cost', label: 'Cost of it', q: 'what that problem is costing them, in their own numbers' },
   { key: 'outcome', label: 'Desired outcome', q: 'where they want to be / their goal if it were fixed' },
+  // The anti-forces (JTBD: change needs Push+Pull > Habit+Anxiety). Every other pillar here measures
+  // Push or qualifies the deal — nothing tracked what they're AFRAID of or what keeps the current way
+  // in place, so those only ever surfaced at the end, as the objection the deal dies on. Habit and
+  // anxiety are merged into one row because in conversation they arrive together and a live checklist
+  // has to stay scannable while the closer is actually talking.
+  { key: 'resistance', label: 'What holds them back', q: 'what they fear goes wrong if they switch, or what keeps them on the current way' },
   { key: 'budget', label: 'Budget', q: 'whether they can invest / any budget reality mentioned' },
   { key: 'decider', label: 'Who decides', q: 'who signs off — them alone, or other stakeholders' },
   { key: 'timeline', label: 'Timeline', q: 'when they want to decide or get started' },
@@ -2642,5 +2653,5 @@ if (require.main === module) {
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
   stripRepeatOpener, repeatsOpener, safePartial, warmPromptCache, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
-  deliveryStats, parseBrain, extractClientBrain, trimBrain, GOALS, PLAYBOOK, FORMAT_RULES, LIVE_MODEL, OPENAI_KEY,
+  deliveryStats, parseBrain, extractClientBrain, trimBrain, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS, LIVE_MODEL, OPENAI_KEY,
 };

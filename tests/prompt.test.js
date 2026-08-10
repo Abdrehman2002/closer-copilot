@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { suite } = require('./lib/t');
-const { buildSystemPrompt, costUsd, GOALS, PLAYBOOK, FORMAT_RULES } = require('../server.js');
+const { buildSystemPrompt, costUsd, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS } = require('../server.js');
 
 const t = suite('prompt');
 const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
@@ -65,6 +65,34 @@ t.group('per-turn content stays at the tail');
   const withFigs = buildSystemPrompt(sess({ productContent: HVAC, callGoal: 'one_call', figuresMd: '\n\nTHEIR NUMBERS: 45/wk' }));
   let i = 0; while (i < base.length && i < withFigs.length && base[i] === withFigs[i]) i++;
   t.ok('adding live figures only invalidates the very end', i / base.length > 0.9);
+}
+
+// A warm call that dies at "let me think about it" is usually Habit and Anxiety winning, never
+// surfaced because discovery only ever measured Push. Measured before/after on six live scenarios:
+// the old layer asked for a "rough average" (a guess, always rounded down), helped a prospect ghost
+// by asking what to put in the info pack, and ARGUED against a stated fear instead of reducing it.
+t.group('discovery surfaces the anti-forces, not just pain');
+{
+  const p = buildSystemPrompt(sess({ productContent: HVAC, callGoal: 'discovery' }));
+  t.match('the four forces are named in the shared layer', p, /PUSH \+ PULL beats HABIT \+ ANXIETY/);
+  t.match('and it says to surface them during discovery, not at the close', p, /Surface both anti-forces DURING discovery/);
+  t.match('a fear is reduced, never argued', p, /fear argued with grows|Never argue it/);
+  t.match('asks for the last real instance, not the typical one', p, /ASK FOR THE LAST ONE, NOT THE TYPICAL ONE/);
+  t.match('praise is explicitly not treated as progress', p, /praise is not progress/i);
+  t.match('the discovery goal carries the resistance instruction too', p, /RESISTANCE on record/);
+}
+
+t.group('the live discovery checklist tracks resistance');
+{
+  const keys = DISCOVERY_PILLARS.map(x => x.key);
+  t.ok('a resistance pillar exists', keys.includes('resistance'));
+  t.eq('keys are unique — a duplicate would silently corrupt the tracker parse',
+    keys.length, new Set(keys).size);
+  t.ok('every pillar has a key, label and question', DISCOVERY_PILLARS.every(x => x.key && x.label && x.q));
+  t.ok('it stays scannable during a live call', DISCOVERY_PILLARS.length <= 8);
+  const r = DISCOVERY_PILLARS.find(x => x.key === 'resistance');
+  t.match('and it covers BOTH anti-forces, since they arrive together', r.q, /fear|afraid/i);
+  t.match('habit as well as anxiety', r.q, /current way/i);
 }
 
 t.group('every goal is usable');
