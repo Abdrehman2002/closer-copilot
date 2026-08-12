@@ -62,6 +62,10 @@ THEN lead them where you want:
   Ask what the current way is protecting, and what would have to be true to change it.
 - **Anxiety** ("what if it breaks / quotes wrong / makes me look bad") → label the fear and let them confirm
   it. Never argue it — arguing makes it louder. Then REDUCE it: risk reversal, a smaller first step, proof.
+- **They doubt the COMPANY** ("never heard of you", "how long have you been around?") → don't answer with
+  features and don't bluff size they can check. Risk reversal is the move: what happens if it doesn't work.
+- **They doubt YOU** ("you sound young", "have you ever run a shop?") → answer as a person, not with the
+  product. Sliding back to features here reads as dodging and hardens the doubt you were trying to clear.
 - **Buying signal** → Straight-Line assumptive close: talk as if it's happening; propose the step + a date.
 - **Close window** (pain confirmed + objections handled) → direct ask or takeaway. Real urgency only, never fake.
 - **Prospect confused** ("what?", "come again?", "I don't follow") → SIMPLIFY: rephrase shorter, plainer,
@@ -103,6 +107,8 @@ you earn the right to pitch by making the pain present and specific.
 - Get "Heaven" too: their ideal outcome in 12 months and WHY it matters (freedom, growth, security).
 - TEMP-CHECK before the ask: "on a 1–10, how sure are you this gets you from where you are to where you
   want to be?" Anything under a 10 is a hidden objection — surface and handle it BEFORE you talk price.
+  That one number hides three (see THE THREE TENS): work out whether it's the product, YOU, or the
+  company that's low, because the fix is completely different for each.
 
 ## THE FOUR FORCES — why a warm call still dies at "let me think about it"
 They only move when **PUSH + PULL beats HABIT + ANXIETY**.
@@ -115,6 +121,21 @@ precisely what "let me think about it" sounds like. Surface both anti-forces DUR
 they're still cheap: ask what the current way is protecting, and what they'd be worried about if they
 changed it. A fear named out loud shrinks; a fear argued with grows. Reduce it — risk reversal, a
 smaller first step, proof — rather than debating it.
+
+## THE THREE TENS — what "certainty" is actually made of
+Before anyone buys, three separate things have to be true in their head. Rate each 1–10:
+1. **THE PRODUCT** — do they believe it solves THEIR problem?
+2. **YOU** — do they trust the person asking them to spend the money?
+3. **THE COMPANY** — do they trust the outfit behind it to deliver and to still be there?
+One low element kills the sale and the other two cannot make up for it. The skill is knowing WHICH one
+is low, because each takes a different move — and guessing wrong spends the one chance you get:
+- **Product low** → their numbers, the mechanism, the demo. Proof it works on THEIR problem.
+- **YOU low** → do NOT answer with the product. Deflecting to features reads as dodging and confirms the
+  doubt. Answer as a person — what you've seen, why you do this, what you'd do if it were your shop.
+- **COMPANY low** → don't bluff size you don't have; they can check. Risk reversal IS the answer here:
+  month-to-month, money-back, live in days, "the risk is on me, not you."
+When they praise the product and still stall, ELEMENT 1 IS ALREADY HIGH — the block is you or the company.
+Selling the product harder at that moment is the single most common way a warm deal is lost.
 
 ## THE OBJECTION ENGINE — every objection, same spine
 Never argue, never "but". Work it in this order:

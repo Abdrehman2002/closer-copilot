@@ -82,6 +82,22 @@ t.group('discovery surfaces the anti-forces, not just pain');
   t.match('the discovery goal carries the resistance instruction too', p, /RESISTANCE on record/);
 }
 
+// The playbook already cited Belfort, but only for TONALITY — none of his certainty model. Measured
+// before/after on four live scenarios: asked "how long have you been around?" the old layer led with
+// "we're new" and pivoted to features; asked "have you ever run a shop?" it changed the subject to the
+// product, which reads as dodging and hardens the doubt. Both are the same missing idea — certainty is
+// three separate numbers (product / you / company) and only the LOW one tells you which move to make.
+t.group('certainty is diagnosed as three numbers, not one');
+{
+  const p = buildSystemPrompt(sess({ productContent: HVAC, callGoal: 'one_call' }));
+  t.match('all three elements are named', p, /THE THREE TENS/);
+  t.match('the company is one of them', p, /THE COMPANY.*trust the outfit behind it/s);
+  t.match('doubt in YOU is not answered with the product', p, /do NOT answer with the product/);
+  t.match('doubt in the company is answered with risk reversal', p, /Risk reversal IS the answer/);
+  t.match('one low element cannot be offset by the other two', p, /other two cannot make up for it/);
+  t.match('the temp-check now resolves WHICH element is low', p, /That one number hides three/);
+}
+
 t.group('the live discovery checklist tracks resistance');
 {
   const keys = DISCOVERY_PILLARS.map(x => x.key);
