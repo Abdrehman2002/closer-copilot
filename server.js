@@ -490,6 +490,7 @@ function buildSystemPrompt(s) {
     goalBlock +
     (s.memory || '') +
     (s.figuresMd || '') +
+    praiseStallBlock(s.turns) +
     kbBlock(s) +
     (s.callGoal && GOALS[s.callGoal] ? '\nREMEMBER: serve the meeting goal (' + GOALS[s.callGoal].label + ') — not the default close drive.' : '');
 }
@@ -806,6 +807,45 @@ function figuresBlock(f, cfg) {
   return '\n\nTHEIR NUMBERS (already calculated from what THEY said - say these, do not recompute):\n- ' +
     lines.join('\n- ') +
     '\nUse these figures directly. They are conservative on purpose; do not inflate them.';
+}
+
+// ---- praise + stall: the warm moment a deal actually dies in ----
+//
+// "The product looks great — I just want to shop around." Praise and a stall in one breath. The praise
+// is the useful half: they have just told you element 1 of the Three Tens is a TEN, so whatever is
+// stopping them is YOU or THE COMPANY. The losing reply is "what did you want to compare?" — it sends
+// them shopping on the one axis already won.
+//
+// The playbook says all of this twice already (the praise-is-not-progress moment, and THE THREE TENS)
+// and measurably does not follow it: three runs, three identical "what do you want to compare" lines,
+// including one against an explicit instruction NOT to say it. That is the same lesson as the repeated
+// opener and the arithmetic — a rule buried thousands of tokens deep in a cached prefix loses to the
+// live transcript sitting at the tail. So detect it in code and inject the instruction where figuresMd
+// goes: last, adjacent to what was just said, impossible to skim past.
+// "I like it" must count, but a bare `like` would fire on "something like this" — so the pronoun is
+// required. "I'd like it" correctly does NOT match: that is a request, not praise.
+const PRAISE_RE = /\b(?:look|looks|sound|sounds|seem|seems)\s+(?:really\s+|pretty\s+|very\s+|quite\s+)?(?:good|great|nice|solid|interesting|impressive|amazing|perfect)\b|\b(?:i|we)\s+(?:really\s+|do\s+)?(?:like|love)\s+(?:it|this|the\s+\w+)\b|\bimpressive\b|\bno[\s-]?brainer\b/i;
+const STALL_RE = /\bshop(?:ping)?\s+around\b|\bthink (?:about it|it over)\b|\bcompar(?:e|ing|ison)\b|\b(?:other|a few|couple of|some)\s+(?:options|quotes|vendors|providers|companies|people)\b|\bget back to (?:you|ya)\b|\bsend me\b|\bsleep on it\b|\brun it by\b|\bcheck with\b|\blook around\b|\bbefore I commit\b/i;
+
+// Fires only when BOTH appear in the SAME prospect turn. A stall on its own is an ordinary objection
+// the playbook already handles well; it is the combination that misleads, because the warmth reads as
+// progress. Deliberately conservative — a false positive injects a forceful instruction at the wrong
+// moment, which costs more than a miss.
+function praiseStallBlock(turns) {
+  const list = turns || [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].ch !== 'prospect') continue;
+    const said = String(list[i].text || '');
+    if (!PRAISE_RE.test(said) || !STALL_RE.test(said)) return '';
+    return '\n\nSITUATION — THEY PRAISED THE OFFER AND STALLED IN THE SAME BREATH:\n' +
+      'They just told you the PRODUCT is not the problem, then deferred anyway. Element 1 of the Three\n' +
+      'Tens is already a ten, so what is actually stopping them is YOU or THE COMPANY.\n' +
+      '- Do NOT ask what they want to compare, and do NOT sell the product harder. Both send them\n' +
+      '  shopping on the one axis you have already won.\n' +
+      '- Isolate which of the other two is low, in your own words: "is it the thing itself you are\n' +
+      '  unsure about — or us?" Then handle THAT one.';
+  }
+  return '';
 }
 
 
@@ -2652,6 +2692,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
-  stripRepeatOpener, repeatsOpener, safePartial, warmPromptCache, extractFigures, figuresBlock, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
+  stripRepeatOpener, repeatsOpener, safePartial, warmPromptCache, extractFigures, figuresBlock, praiseStallBlock, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
   deliveryStats, parseBrain, extractClientBrain, trimBrain, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS, LIVE_MODEL, OPENAI_KEY,
 };

@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { suite } = require('./lib/t');
-const { buildSystemPrompt, costUsd, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS } = require('../server.js');
+const { buildSystemPrompt, costUsd, praiseStallBlock, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS } = require('../server.js');
 
 const t = suite('prompt');
 const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
@@ -96,6 +96,45 @@ t.group('certainty is diagnosed as three numbers, not one');
   t.match('doubt in the company is answered with risk reversal', p, /Risk reversal IS the answer/);
   t.match('one low element cannot be offset by the other two', p, /other two cannot make up for it/);
   t.match('the temp-check now resolves WHICH element is low', p, /That one number hides three/);
+}
+
+// Praise and a stall in one breath ("product looks good, I'll shop around") is the warm moment a deal
+// dies in: the praise says element 1 is a TEN, so the block is YOU or the company — and the losing reply
+// is "what did you want to compare?", which sends them shopping on the one axis already won. The playbook
+// says this twice and measurably would not follow it: three runs, three identical "what do you want to
+// compare" lines, one of them against an explicit instruction NOT to say it. Detected in code instead,
+// and injected at the tail next to the transcript, it changed on the first run.
+t.group('praise + stall is caught in code, not left to the prompt');
+{
+  const p = (text) => [{ ch: 'prospect', text }];
+  const fires = (turns) => praiseStallBlock(turns) !== '';
+  t.ok('the line that beat the prompt three times', fires(p('Honestly the product itself looks good. I just want to shop around a bit before I commit.')));
+  t.ok('praise + think about it', fires(p('Sounds great honestly, let me think about it.')));
+  t.ok('praise + send me info', fires(p('Looks really solid. Send me some info and I will take a look.')));
+  t.ok('"I like it" counts as praise', fires(p('I like it. I just need to run it by my brother first.')));
+
+  // False positives cost more than misses here: this injects a forceful instruction, so a stall that is
+  // just a stall must stay with the playbook's ordinary objection handling.
+  t.no('a stall with no praise is an ordinary objection', fires(p('I need to think about it.')));
+  t.no('praise with no stall is a buying signal, not this', fires(p('That sounds great, how do we get started?')));
+  t.no('"something like this" is not praise', fires(p('Is there something like this that is cheaper? Let me think about it.')));
+  t.no('"I\'d like it cheaper" is a request, not praise', fires(p("I'd like it cheaper. Let me think about it.")));
+  t.no('a plain price objection is untouched', fires(p('That is way too expensive for me.')));
+  t.no('only the LATEST prospect turn counts', fires([
+    { ch: 'prospect', text: 'Looks good, let me shop around' },
+    { ch: 'me', text: 'sure' },
+    { ch: 'prospect', text: 'Okay what does it cost?' },
+  ]));
+  t.safe('never throws on empty or malformed turns', () => {
+    praiseStallBlock([]); praiseStallBlock(null); praiseStallBlock([{ ch: 'prospect' }]);
+  });
+
+  t.match('the block tells it NOT to ask what they want to compare',
+    praiseStallBlock(p('Looks good, I want to shop around.')), /Do NOT ask what they want to compare/);
+  t.ok('and it rides at the tail, next to the transcript, where figuresMd works',
+    buildSystemPrompt(sess({ productContent: HVAC, turns: p('Looks good, I want to shop around.') }))
+      .indexOf('THEY PRAISED THE OFFER AND STALLED') > 0.8 *
+    buildSystemPrompt(sess({ productContent: HVAC, turns: p('Looks good, I want to shop around.') })).length);
 }
 
 t.group('the live discovery checklist tracks resistance');
