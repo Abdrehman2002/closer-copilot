@@ -103,4 +103,49 @@ t.safe('degenerate input never throws', () => {
   trimBrain(undefined); trimBrain('## Objections raised');
 });
 
+// Every other field in the brain describes the DEAL. This one describes the PERSON — the thing a
+// closer previously rediscovered from scratch on every call, because the old
+// "What they care about / buying signals" heading was the only section with no worked example and
+// nothing downstream ever parsed it.
+t.group('how they buy — the buyer, not the deal');
+{
+  const WITH_BUYER = `# Mike — Acme HVAC
+**Snapshot:** WARM · needs ROI proof
+
+## How they buy
+- read: analytical
+- moves them: ROI maths on their own numbers
+- stalls them: being pushed for a decision
+- signals: PRICE x4 · BUYING x2
+`;
+  // Read through a null-safe shim: if the parse regresses to null these assertions must FAIL, not
+  // throw. A crashing suite silently skips every check after it, which hides more than it reports.
+  const b = parseBrain(WITH_BUYER).buyer || {};
+  t.ok('a buyer profile is returned', !!parseBrain(WITH_BUYER).buyer);
+  t.eq('the read is exposed to code, not just to a model', b.read, 'analytical');
+  t.eq('what moves them', b.moves, 'ROI maths on their own numbers');
+  t.eq('what stalls them', b.stalls, 'being pushed for a decision');
+  t.match('and the evidence behind it', b.signals || '', /PRICE x4/);
+
+  // Legacy brains are never rewritten in place — they regenerate at the next call's end. Until
+  // then the field must be absent, never a guess.
+  t.eq('a brain written before this existed returns null, not an invention', parseBrain(OLD).buyer, null);
+  t.eq('an unfilled template line is not an observation',
+    parseBrain('## How they buy\n- read: analytical|driver|skeptical\n').buyer, null);
+  t.eq('nor is an unreplaced placeholder',
+    parseBrain('## How they buy\n- moves them: <what visibly worked>\n').buyer, null);
+  t.safe('malformed section never throws', () => {
+    parseBrain('## How they buy'); parseBrain('## How they buy\n- read:\n');
+  });
+
+  t.group('the new section is capped like every other');
+  const many = '## How they buy\n' + Array.from({ length: 9 }, (_, i) => `- read: r${i}`).join('\n');
+  t.eq('trimmed to 4 bullets', (trimBrain(many).match(/^- /gm) || []).length, 4);
+  t.match('the legacy heading stays capped too, so old brains cannot grow unbounded',
+    trimBrain('## What they care about / buying signals\n' + Array.from({ length: 9 }, (_, i) => `- x${i}`).join('\n')),
+    /x3/);
+  t.no('and is actually cut', /x4/.test(
+    trimBrain('## What they care about / buying signals\n' + Array.from({ length: 9 }, (_, i) => `- x${i}`).join('\n'))));
+}
+
 module.exports = t.report();

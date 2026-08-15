@@ -11,6 +11,8 @@ type State = {
   productId: string | null
   brief: string | null
   battlePlan: string | null
+  // how this buyer buys, carried in from previous calls — null on a first call
+  buyer: { read: string; moves: string; stalls: string; signals: string } | null
   clientName: string | null
   productName: string | null
   goalLabel: string | null
@@ -25,7 +27,7 @@ type State = {
 
 const state: State = {
   active: false, status: '', srvOn: false,
-  dealId: null, productId: null, brief: null, battlePlan: null, clientName: null, productName: null,
+  dealId: null, productId: null, brief: null, battlePlan: null, buyer: null, clientName: null, productName: null,
   goalLabel: null,
   transcript: [], cards: [], streaming: null, discovery: null, signal: null, interim: '', awaitingOutcome: false,
 }
@@ -117,9 +119,10 @@ export const liveCall = {
   subscribe(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn) },
 
   async start(dealId: string, productId: string, goal?: string) {
-    const r = await api<{ brief: string | null; battlePlan: string | null; clientName: string | null; productName: string | null; goalLabel?: string }>(
+    const r = await api<{ brief: string | null; battlePlan: string | null; buyer: State['buyer']; clientName: string | null; productName: string | null; goalLabel?: string }>(
       '/api/call/start', { dealId, productId, goal })
-    state.brief = r.brief; state.battlePlan = r.battlePlan; state.clientName = r.clientName; state.productName = r.productName
+    state.brief = r.brief; state.battlePlan = r.battlePlan; state.buyer = r.buyer || null
+    state.clientName = r.clientName; state.productName = r.productName
     state.goalLabel = r.goalLabel || null
     state.transcript = []; state.cards = []; state.streaming = null; state.discovery = null; state.signal = null; state.interim = ''; state.awaitingOutcome = false
     state.dealId = dealId; state.productId = productId
@@ -197,9 +200,14 @@ export const liveCall = {
   },
 }
 
+// Must cover every tag in server.js MOMENTS — DIY, CONTRACT and TRUST were already being emitted
+// with no entry here, so they fell through to the grey default and read as "unknown" rather than as
+// the distinct moments they are. Red flags share one colour: they mean the same thing to the closer
+// (this deal may not be real yet), so they should not need decoding.
 const SIGNAL_COLORS: Record<string, string> = {
   PRICE: 'hsl(214 95% 52%)', BUYING: '#15803d', OBJECTION: '#b45309',
-  STALL: '#b45309', COMPETITOR: '#7c3aed',
+  STALL: '#b45309', COMPETITOR: '#7c3aed', DIY: '#7c3aed', CONTRACT: '#b45309',
+  TRUST: '#be123c', VAGUE: '#be123c', NO_AUTHORITY: '#be123c',
 }
 
 function updatePipSignal() {

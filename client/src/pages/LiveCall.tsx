@@ -6,7 +6,7 @@ import { CoachingCard } from '@/lib/coaching'
 import { OutcomeModal } from '@/components/OutcomeModal'
 import { Button } from '@/components/ui/button'
 import type { Outcome } from '@/lib/types'
-import { PictureInPicture2, Zap, Target, Check, Circle } from 'lucide-react'
+import { PictureInPicture2, Zap, Target, Check, Circle, UserRound } from 'lucide-react'
 
 export default function LiveCall() {
   const { state, live } = useLiveCall()
@@ -55,15 +55,32 @@ export default function LiveCall() {
         </div>
       </div>
 
-      {state.discovery && (
+      {/* One strip, not two. The buyer read rides in the row the closer already scans rather than
+          claiming a new region — a HUD only helps while it removes a glance, and a second panel
+          would add one back. Absent entirely on a first call, when nothing has been observed. */}
+      {(state.discovery || state.buyer?.read) && (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Discovery</span>
-          {state.discovery.map((p) => (
-            <span key={p.key} title={p.note || (p.covered ? 'covered' : 'still open — dig here')}
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${p.covered ? 'bg-success/12 text-success' : 'border border-dashed border-border text-muted-foreground'}`}>
-              {p.covered ? <Check className="h-3 w-3" /> : <Circle className="h-2.5 w-2.5" />} {p.label}
+          {state.buyer?.read && (
+            <span
+              title={[
+                state.buyer.moves && `Moves them: ${state.buyer.moves}`,
+                state.buyer.stalls && `Stalls them: ${state.buyer.stalls}`,
+              ].filter(Boolean).join('\n') || 'How they bought on previous calls'}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+              <UserRound className="h-3 w-3" /> {state.buyer.read}
             </span>
-          ))}
+          )}
+          {state.discovery && (
+            <>
+              <span className="mr-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Discovery</span>
+              {state.discovery.map((p) => (
+                <span key={p.key} title={p.note || (p.covered ? 'covered' : 'still open — dig here')}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${p.covered ? 'bg-success/12 text-success' : 'border border-dashed border-border text-muted-foreground'}`}>
+                  {p.covered ? <Check className="h-3 w-3" /> : <Circle className="h-2.5 w-2.5" />} {p.label}
+                </span>
+              ))}
+            </>
+          )}
         </div>
       )}
 
@@ -120,12 +137,21 @@ export default function LiveCall() {
   )
 }
 
+// Mirrors SIGNAL_COLORS in lib/liveCall.ts (the PiP overlay) — keep the two in step, and cover every
+// tag server.js can emit. DIY/CONTRACT/TRUST were previously missing and fell through to plain grey.
+// Red flags share one colour: they all mean the same thing to a closer mid-call — this deal may not
+// be real yet — so they should not need decoding.
 const TAG_STYLE: Record<string, string> = {
   PRICE: 'bg-primary text-primary-foreground',
   BUYING: 'bg-success text-white',
   OBJECTION: 'bg-amber-600 text-white',
   STALL: 'bg-amber-600 text-white',
+  CONTRACT: 'bg-amber-600 text-white',
   COMPETITOR: 'bg-violet-600 text-white',
+  DIY: 'bg-violet-600 text-white',
+  TRUST: 'bg-rose-700 text-white',
+  VAGUE: 'bg-rose-700 text-white',
+  NO_AUTHORITY: 'bg-rose-700 text-white',
 }
 
 function InstantLane({ signal, active }: { signal: { tag: string; hint: string } | null; active: boolean }) {

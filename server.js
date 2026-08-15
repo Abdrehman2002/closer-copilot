@@ -400,7 +400,14 @@ const MOMENTS = [
   { re: /\brobot|\bscam\b|don'?t trust|got burned|been burned|messes? up|screws? up|what if it|my name on|reputation|guarantee/, tag: 'TRUST',
     read: 'TRUST / RISK — they fear it going wrong and it landing on them.',
     hint: 'This is risk, not price — reverse it and make the downside yours, not theirs.' },
-  { re: /how (fast|soon|quick|long|do|does|would)|when can|what.*next|what (do )?we (need|gotta)|sounds good|i'?m in|let'?s do|get started|sign (me )?up|say i did/, tag: 'BUYING',
+  // Verbal buying signals only — a live call gives us words, not body language. The classic
+  // nonverbal tells (leaning in, nodding) are simply not observable here, so nothing pretends to.
+  // Beyond the obvious "how soon can we start", the additions are the quieter ones that research
+  // ranks highest and this missed: ASSUMPTIVE language (they have started imagining owning it),
+  // INTEGRATION questions, REFERENCE requests, and ONBOARDING questions. Note "we'd" alone is NOT
+  // enough — "we'd have to think about it" is a stall, and STALL is matched after this, so a bare
+  // pronoun here would steal it. Hence the explicit if/once/when + verb construction.
+  { re: /how (fast|soon|quick|long|do|does|would)|when can|what.*next|what (do )?we (need|gotta)|sounds good|i'?m in|let'?s do|get started|sign (me )?up|say i did|\b(if|once|when) we (did|do|go|went|move|moved|sign|signed|start|started)\b|work with (our|my|the)|integrat|who else (uses|is using|has)|\breferences\b|onboarding|implementation|what does (the )?set.?up (look like|involve|entail)/, tag: 'BUYING',
     read: 'BUYING SIGNAL — lean into the close.',
     hint: 'Buying signal — stop selling and ask for the next step.' },
   { re: /think (it |about )?(over|about)|let me think|run it by|talk to (my|the)|get back to you|send (me|over)|email me|\bpacket\b|proposal|in writing|more info|not (a )?good time|another time|call me back|circle back|not sure|don'?t know/, tag: 'STALL',
@@ -411,6 +418,18 @@ const MOMENTS = [
   { re: /not interested|\bworried\b|\bconcern|\bdoubt|not a fit|not for us|\bhesitant\b|\bskeptic|don'?t (see|need)/, tag: 'OBJECTION',
     read: 'OBJECTION — a concern was just raised.',
     hint: 'Concern raised — acknowledge it first, then reframe.' },
+
+  // RED FLAGS last, deliberately. These are the weakest, most ambiguous reads in the list, and a
+  // real objection or stall is always the more useful thing to surface — first-match-wins means
+  // anything above here keeps its claim. Phrases already owned upstream are NOT repeated: "not
+  // sure" and "run it by" belong to STALL, and stealing them back would silently change a tag the
+  // closer already relies on.
+  { re: /\bit (varies|depends)\b|\bdepends on\b|\bhard to say\b|\bcouldn'?t (really )?say\b|\ball over the place\b|off the top of my head|\bballpark\b|give or take/, tag: 'VAGUE',
+    read: 'VAGUE — they are answering in generalities, not specifics.',
+    hint: 'No real number yet — ask for the LAST actual one, not the typical one.' },
+  { re: /not my (call|decision)|not up to me|above my pay ?grade|someone else (handles|decides|does)|i don'?t (make|handle) (that|those)|(owner|boss|partner|committee) (decides|handles|would have)/, tag: 'NO_AUTHORITY',
+    read: 'NO AUTHORITY — they may not be the one who can say yes.',
+    hint: 'They cannot sign alone — find out who can, and get them in the room.' },
 ];
 
 function classifyMoment(text) {
@@ -433,6 +452,11 @@ function detectTrigger(turns) {
 function emitSignal(s, text) {
   const m = classifyMoment(text);
   const tag = m ? m.tag : null;
+  // Tally EVERY tagged turn, not only the ones that change the badge — the badge is deduped so the
+  // socket isn't flooded, but the histogram wants intensity. Three separate price moments and one
+  // long price moment are different buyers, and this is the evidence the end-of-call brain uses to
+  // say WHY it called someone price-focused instead of guessing from the transcript's mood.
+  if (tag) { s.signalCounts = s.signalCounts || {}; s.signalCounts[tag] = (s.signalCounts[tag] || 0) + 1; }
   if (tag === s.lastSignalTag) return;
   s.lastSignalTag = tag;
   broadcast(s, { type: 'signal', tag, hint: m ? m.hint : null });
@@ -1252,7 +1276,11 @@ const BRAIN_TEMPLATE = `# {Client name} — {Company}
 - facts and figures, fragments only: "45 calls/wk (~180/mo) · 15 missed/mo · ticket ~$9k"
 ## Objections raised
 - "<objection in 2-5 words> · OPEN" or "<objection> · HANDLED (<how, ≤6 words>)"
-## What they care about / buying signals
+## How they buy
+- read: analytical|driver|skeptical|relationship-led|price-focused|rushed
+- moves them: <what visibly worked, ≤8 words>
+- stalls them: <what visibly made them retreat, ≤8 words>
+- signals: <tags actually seen, e.g. "BUYING x3 · PRICE x2">
 ## Stakeholders & decision process
 ## Commitments
 - us: <what we owe them>
@@ -1319,7 +1347,24 @@ function parseBrain(md) {
     if (/\b(cold|stalled|hesitant|resistant|not ready|not interested|going nowhere|skeptical|unconvinced)\b/.test(hay)) warmth = 'cold';
     if (/\b(hot|ready to (close|buy|move|sign|start|go)|eager|excited|very interested|strong interest|keen|sold|warm)\b/.test(hay)) warmth = 'hot';
   }
-  return { snapshot, openObjections, nextStep, howToClose, warmth, commitmentsUs, commitmentsThem };
+  // How this specific buyer buys, carried across calls. Every other field here describes the DEAL;
+  // this one describes the PERSON, which is the thing a closer previously had to rediscover from
+  // scratch every call. Returns null when the section is absent, which is the normal state for a
+  // brain written before this existed — those self-heal at the next call's regeneration.
+  const buyer = (() => {
+    const sec = sectionOf(md, 'How they buy');
+    if (!sec.trim()) return null;
+    const field = (name) => {
+      const m = sec.match(new RegExp('^[-*]?\\s*' + name + '\\s*:\\s*(.+)$', 'im'));
+      const v = m ? m[1].trim() : '';
+      // an unfilled template line ("read: analytical|driver|...") is not an observation
+      return v && !v.includes('|') && !/^</.test(v) ? v : '';
+    };
+    const read = field('read'), moves = field('moves them'), stalls = field('stalls them');
+    if (!read && !moves && !stalls) return null;
+    return { read, moves, stalls, signals: field('signals') };
+  })();
+  return { snapshot, openObjections, nextStep, howToClose, warmth, commitmentsUs, commitmentsThem, buyer };
 }
 
 // compute the single primary "next move" for one open deal
@@ -1395,6 +1440,10 @@ const objKey = (s) => kwTokens(s).slice(0, 4).join(' ');
 const BRAIN_CAPS = {
   'Their situation & pain': 6,
   'Objections raised': 6,
+  'How they buy': 4,
+  // Legacy heading, kept ONLY so brains written before "How they buy" existed stay trimmed. The
+  // lookup is an exact string match, so dropping this would silently give old docs an infinite cap
+  // until their next call regenerates them. Safe to delete once no live brain still carries it.
   'What they care about / buying signals': 4,
   'Stakeholders & decision process': 3,
   'Commitments': 4,
@@ -1422,7 +1471,17 @@ function trimBrain(md) {
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-async function extractClientBrain(prevMemoryMd, turns, productName, clientName, company) {
+// Counted deterministically during the call by emitSignal, so "price-focused" rests on eleven price
+// moments rather than on the transcript's mood. Omitted entirely when nothing was tagged — an empty
+// heading invites the model to fill it.
+function signalBlock(counts) {
+  const pairs = Object.entries(counts || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  if (!pairs.length) return '';
+  return '\nSIGNAL COUNTS observed on this call (deterministic, use for "read:"):\n' +
+    pairs.map(([tag, n]) => tag + ' x' + n).join(' · ') + '\n';
+}
+
+async function extractClientBrain(prevMemoryMd, turns, productName, clientName, company, signalCounts) {
   const transcript = turns.map(t => (t.ch === 'me' ? 'ME' : 'PROSPECT') + ': ' + t.text).join('\n');
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -1453,6 +1512,17 @@ Rules:
            effectiveness and questions paying more."
     GOOD: "- already paying a service · OPEN"
 - Objections: "<objection, 2-5 words> · OPEN" or "<objection> · HANDLED (<how, ≤6 words>)".
+- "How they buy" describes the PERSON, not the deal — it is what a closer would tell a colleague
+  taking over this account. "read:" must be exactly ONE of: analytical, driver, skeptical,
+  relationship-led, price-focused, rushed. Base it on OBSERVED behaviour, and on the SIGNAL COUNTS
+  given below when they are present — not on how the call felt.
+    GOOD: "- read: analytical"
+          "- moves them: ROI maths on their own numbers"
+          "- stalls them: being pushed for a decision"
+    BAD:  "- read: seems like a nice guy who wants value"   (not a listed read, and true of anyone)
+  Carry the previous read forward unless this call genuinely contradicts it — a buyer's disposition
+  is stable, and flip-flopping it every call makes the field worthless. Leave a field EMPTY rather
+  than guessing; an empty line is honest, an invented one gets said out loud on the next call.
 - HARD CAPS, obey these before anything else: EVERY bullet ≤ 12 words. Max 6 bullets per section,
   max 3 under "Where we left off" and "How to close them next call". Whole document under 250
   words. If you are at a cap, cut the least useful line — never extend the document.
@@ -1470,7 +1540,7 @@ PRODUCT BEING SOLD: ${productName || '(unspecified)'}
 
 PREVIOUS CLIENT BRAIN:
 ${prevMemoryMd && prevMemoryMd.trim() ? prevMemoryMd : '(none — this is the first call)'}
-
+${signalBlock(signalCounts)}
 TRANSCRIPT OF THE CALL THAT JUST ENDED:
 ${transcript}`
         }
@@ -2230,7 +2300,7 @@ const server = http.createServer(async (req, res) => {
         s.callGoal = goal && GOALS[goal] ? goal : '';
         s.turns = []; s.cards = []; s.callLog = null; s.lastCardAt = 0; s.callStartAt = Date.now();
         s.memory = ''; s.priorMemoryMd = ''; s.dealName = ''; s.dealCompany = '';
-        s.discovery = null; s.lastDiscoveryAt = 0;
+        s.discovery = null; s.lastDiscoveryAt = 0; s.signalCounts = {}; s.lastSignalTag = null;
 
         const [prodRow, profRows, kbRows] = await Promise.all([
           s.activeProductId ? sbRest('products?id=eq.' + s.activeProductId + '&select=name,content,metrics', jwt) : [],
@@ -2279,7 +2349,11 @@ const server = http.createServer(async (req, res) => {
           console.error('[battle-plan]', e.message);   // non-fatal — the call still starts without it
         }
 
-        return sendJson(res, { ok: true, brief, battlePlan, clientName, productName: s.activeProductName, goal: s.callGoal, goalLabel: s.callGoal ? GOALS[s.callGoal].label : '' });
+        // How this buyer buys, carried in from previous calls. Null on a first call, and null for
+        // any brain written before the section existed — the UI simply shows nothing rather than
+        // asserting a disposition nobody has observed yet.
+        const buyer = s.priorMemoryMd ? parseBrain(s.priorMemoryMd).buyer : null;
+        return sendJson(res, { ok: true, brief, battlePlan, buyer, clientName, productName: s.activeProductName, goal: s.callGoal, goalLabel: s.callGoal ? GOALS[s.callGoal].label : '' });
       }
       if (urlPath === '/api/call/end' && req.method === 'POST') {
         const { outcome, savedDeal, savedDealNote, outcomeAmount, outcomeReason } = await readBody(req);
@@ -2291,7 +2365,7 @@ const server = http.createServer(async (req, res) => {
         // Client Brain + the closer's own delivery review are independent reads of the same
         // transcript — run them together instead of stacking their latency serially
         const [brainResult, reviewResult] = await Promise.all([
-          extractClientBrain(s.priorMemoryMd, s.turns, s.activeProductName, s.dealName, s.dealCompany),
+          extractClientBrain(s.priorMemoryMd, s.turns, s.activeProductName, s.dealName, s.dealCompany, s.signalCounts),
           reviewCall(s.turns, s.activeProductName, s.callGoal).catch(e => { console.error('[review]', e.message); return null; })
         ]);
         const memoryMd = brainResult.text;

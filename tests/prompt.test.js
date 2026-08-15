@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { suite } = require('./lib/t');
-const { buildSystemPrompt, costUsd, praiseStallBlock, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS } = require('../server.js');
+const { buildSystemPrompt, costUsd, praiseStallBlock, classifyMoment, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS } = require('../server.js');
 
 const t = suite('prompt');
 const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
@@ -135,6 +135,54 @@ t.group('praise + stall is caught in code, not left to the prompt');
     buildSystemPrompt(sess({ productContent: HVAC, turns: p('Looks good, I want to shop around.') }))
       .indexOf('THEY PRAISED THE OFFER AND STALLED') > 0.8 *
     buildSystemPrompt(sess({ productContent: HVAC, turns: p('Looks good, I want to shop around.') })).length);
+}
+
+// The instant lane the closer reads while the prospect is still talking. Deterministic and
+// first-match-wins, so ORDER is the whole contract: a new pattern in the wrong place silently steals
+// a tag the closer already relies on, and nothing would fail loudly. Every existing tag therefore
+// gets a regression case pinned to its own canonical phrase.
+t.group('signal classifier — existing tags keep their claim');
+{
+  const tag = (text) => { const m = classifyMoment(text); return m ? m.tag : null; };
+  t.eq('DIY', tag('I could just hire someone in-house for that'), 'DIY');
+  t.eq('CONTRACT', tag('Am I locked into a long term contract?'), 'CONTRACT');
+  t.eq('COMPETITOR', tag('We already use another company for this'), 'COMPETITOR');
+  t.eq('PRICE', tag('How much does it cost?'), 'PRICE');
+  t.eq('TRUST', tag('What if it screws up and my name is on it'), 'TRUST');
+  t.eq('BUYING', tag('How soon can we get started?'), 'BUYING');
+  t.eq('STALL', tag('Let me think about it and get back to you'), 'STALL');
+  t.eq('OBJECTION', tag('I am worried this is not a fit for us'), 'OBJECTION');
+}
+
+t.group('signal classifier — the quieter buying signals');
+{
+  const tag = (text) => { const m = classifyMoment(text); return m ? m.tag : null; };
+  // Research ranks these among the strongest verbal signals, and all of them used to read as
+  // "neutral moment" — the closer got no badge at exactly the moments worth pouncing on.
+  // Phrased to avoid "how do/does/would", which the ORIGINAL pattern already caught — otherwise
+  // this passes without ever exercising the assumptive rule it claims to cover.
+  t.eq('assumptive language — they are imagining owning it', tag('Once we started, who would be our main contact?'), 'BUYING');
+  t.eq('integration question', tag('Does it work with our CRM?'), 'BUYING');
+  t.eq('reference request', tag('Do you have any references I could call?'), 'BUYING');
+  t.eq('who else uses it', tag('Who else uses this in my area?'), 'BUYING');
+  t.eq('onboarding question', tag('What does onboarding look like?'), 'BUYING');
+  // "we'd" alone must NOT be a buying signal — STALL is matched after BUYING, so a bare pronoun
+  // here would swallow the most common stall in the product.
+  t.eq('"we would have to think about it" is still a STALL', tag('We would have to think about it'), 'STALL');
+}
+
+t.group('signal classifier — red flags, and what they must not steal');
+{
+  const tag = (text) => { const m = classifyMoment(text); return m ? m.tag : null; };
+  t.eq('VAGUE', tag('Ah it varies a lot, hard to say really'), 'VAGUE');
+  t.eq('NO_AUTHORITY', tag('Honestly that is not my call'), 'NO_AUTHORITY');
+  // Red flags are last on purpose: they are the weakest reads in the list, and a real objection or
+  // stall is always the more useful thing to put in front of a closer.
+  t.eq('"not sure" stays STALL', tag('I am not sure, let me think about it'), 'STALL');
+  t.eq('"run it by" stays STALL', tag('I need to run it by my brother'), 'STALL');
+  t.eq('a live price question still beats a vague hedge', tag('It depends, how much is it?'), 'PRICE');
+  t.eq('ordinary small talk stays untagged', tag('Yeah the weather has been rough this week'), null);
+  t.safe('degenerate input never throws', () => { classifyMoment(''); classifyMoment(null); });
 }
 
 t.group('the live discovery checklist tracks resistance');
