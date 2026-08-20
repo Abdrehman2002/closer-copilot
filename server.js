@@ -515,6 +515,7 @@ function buildSystemPrompt(s) {
     (s.memory || '') +
     (s.figuresMd || '') +
     praiseStallBlock(s.turns) +
+    interrogationBlock(s.cards, s.callGoal) +
     kbBlock(s) +
     (s.callGoal && GOALS[s.callGoal] ? '\nREMEMBER: serve the meeting goal (' + GOALS[s.callGoal].label + ') — not the default close drive.' : '');
 }
@@ -870,6 +871,83 @@ function praiseStallBlock(turns) {
       '  unsure about — or us?" Then handle THAT one.';
   }
   return '';
+}
+
+// ---- interrogation brake ----
+//
+// Measured over 197 stored cards: 96.4% contained a question, 84.8% ENDED on one, and 78.7% were
+// tagged "calibrated question". Only ONE card in the whole set used silence. Gong's benchmark for
+// top reps answering an objection is ~54% questions — the point being that they do NOT ask the
+// other 46% of the time; they state, reframe and close. The coach had collapsed into a single move.
+//
+// playbook.md already forbids this ("Every line ending in a question reads as an interrogation, not
+// a professional… roughly one line in three should ASK FOR SOMETHING CONCRETE") and the model does
+// it anyway, which is the same lesson as the repeated opener, the size cap and the arithmetic: a
+// rule buried in the cached prefix loses to the live transcript. So count it in code.
+//
+// Only a line that is ONLY questions counts. "Forty-five a week — that's about a hundred and eighty
+// a month. How many do you miss?" states something first and is exactly what good looks like; it
+// must not be penalised for ending on a question mark.
+// The pause marks are CLAUSE SEPARATORS in this product's grammar, not whitespace. "Forty-five a
+// week || that's about a hundred and eighty a month || how many do you miss?" carries no full stop,
+// so splitting on sentence punctuation alone collapses it into one question-ending string and scores
+// the best line in the product as an interrogation. Split on the pause marks first.
+function isPureQuestion(line) {
+  const bare = String(line || '')
+    .replace(/\[[^\]]*\]/g, ' ')      // [softer], [👤 lean in]
+    .replace(/[↗↘*]/g, ' ')           // pitch arrows, stress markers
+    .trim();
+  if (!bare) return false;
+  const clauses = bare
+    .split(/\|+/)                             // pause marks first
+    .flatMap(c => c.split(/(?<=[.?!])\s+/))    // then sentence enders
+    .map(c => c.trim())
+    .filter(Boolean);
+  if (!clauses.length) return false;
+  // A stock acknowledgement is not content. "Totally fair" and "I get that" are the filler the
+  // playbook already tells the coach to rotate or drop, and stripRepeatOpener already deletes them
+  // when they repeat - so crediting them as "the rep stated something" would let an unbroken run of
+  // interrogation hide behind a two-word preamble.
+  const meaningful = clauses.filter(c => !isFillerClause(c));
+  if (!meaningful.length) return false;
+  // Whatever is left with no '?' is real declarative content, and this line is doing its job.
+  //
+  // KNOWN LIMIT, deliberately biased this way: a single question split across pause marks
+  // ("On a busy week || how many calls come in?") reads as mixed, so the brake under-fires. That is
+  // the safe direction - a missed nudge costs nothing, whereas a wrong one pushes the coach to state
+  // something at a moment when asking was genuinely the right move.
+  return meaningful.every(c => c.endsWith('?'));
+}
+
+// Grounded in what the coach ACTUALLY emits, not what filler sounds like in theory: "I completely
+// get you" opens dozens of real stored cards, and at four words it would otherwise slip past the
+// short-clause rule and be credited as though the rep had said something.
+const STOCK_ACK_RE = /^(?:totally |i |that's |thats |that |it )?(?:completely |totally |really )?(?:fair|get (?:it|that|you)|hear (?:you|that)|understand|understood|makes (?:total )?sense|appreciate (?:that|it|you)|of course|absolutely|no problem|sounds good|good to hear|great to hear|glad)(?![a-z])|^(?:perfect|great|exactly|right|sure|okay|ok|yeah|yes)(?![a-z])|^most (?:owners|people|folks|guys|customers) say/i;
+const isFillerClause = (c) => !c.endsWith('?') && (c.split(/\s+/).length <= 3 || STOCK_ACK_RE.test(c));
+
+// Discovery is SUPPOSED to be question-led — the goal block literally asks for one question per card
+// and 70% prospect talk time. So the brake is not "stop asking", it is "stop asking BARE questions":
+// on a discovery call the fix is to label or reflect first (still discovery, but declarative), and
+// on a closing call it is to state something or ask for the commitment.
+const QUESTION_LED_GOALS = new Set(['discovery', 'qualify']);
+
+function interrogationBlock(cards, callGoal) {
+  const recent = (cards || []).slice(-3).map(c => c && c.line).filter(Boolean);
+  const questionLed = QUESTION_LED_GOALS.has(callGoal);
+  const limit = questionLed ? 3 : 2;   // discovery gets more rope, but not unlimited
+  if (recent.length < limit) return '';
+  const streak = recent.slice(-limit).every(isPureQuestion);
+  if (!streak) return '';
+  return '\n\nSITUATION — YOUR LAST ' + limit + ' CARDS WERE ALL BARE QUESTIONS:\n' +
+    'Back to back questions with nothing stated in between stops being discovery and starts being an\n' +
+    'interrogation. The prospect feels processed, not understood.\n' +
+    (questionLed
+      ? '- This card must NOT open with another bare question. Label what they just said, or reflect it\n' +
+        '  back, THEN ask. "Sounds like the summer months are the problem — what happens to the ones you\n' +
+        '  miss?" is still discovery; "how many do you miss?" on its own is the fourth question in a row.'
+      : '- This card must NOT be only a question. Either STATE something — the maths on their own\n' +
+        '  numbers, a reframe, the proof — or ask for the concrete next step. On a call with this goal,\n' +
+        '  one line in three should be asking for something real, not gathering more information.');
 }
 
 
@@ -2766,6 +2844,6 @@ if (require.main === module) {
 
 module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
-  stripRepeatOpener, repeatsOpener, safePartial, warmPromptCache, extractFigures, figuresBlock, praiseStallBlock, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
+  stripRepeatOpener, repeatsOpener, safePartial, warmPromptCache, extractFigures, figuresBlock, praiseStallBlock, interrogationBlock, isPureQuestion, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
   deliveryStats, parseBrain, extractClientBrain, trimBrain, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS, LIVE_MODEL, OPENAI_KEY,
 };

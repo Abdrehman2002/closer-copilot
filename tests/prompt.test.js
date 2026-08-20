@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const { suite } = require('./lib/t');
-const { buildSystemPrompt, costUsd, praiseStallBlock, classifyMoment, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS } = require('../server.js');
+const { buildSystemPrompt, costUsd, praiseStallBlock, classifyMoment, isPureQuestion, interrogationBlock, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS } = require('../server.js');
 
 const t = suite('prompt');
 const read = (p) => fs.readFileSync(path.join(__dirname, '..', p), 'utf8');
@@ -183,6 +183,40 @@ t.group('signal classifier — red flags, and what they must not steal');
   t.eq('a live price question still beats a vague hedge', tag('It depends, how much is it?'), 'PRICE');
   t.eq('ordinary small talk stays untagged', tag('Yeah the weather has been rough this week'), null);
   t.safe('degenerate input never throws', () => { classifyMoment(''); classifyMoment(null); });
+}
+
+// Measured over 197 real stored cards: 96.4% contained a question, 84.8% ENDED on one, 78.7% were
+// tagged "calibrated question", and exactly ONE used silence. Gong puts top reps at ~54% questions
+// when answering an objection - the point being they do NOT ask the other 46%. playbook.md already
+// forbids the interrogation ("roughly one line in three should ASK FOR SOMETHING CONCRETE") and the
+// model did it anyway, so it is counted in code. Fixtures below are REAL lines from the calls table.
+t.group('the interrogation brake reads a line the way a closer would');
+{
+  const bare = (l) => isPureQuestion(l);
+  t.ok('a stock ack plus a question is still just a question', bare('I completely get you — |||| is it the *investment* or the decision-maker? ↗'));
+  t.ok('so is a longer ack', bare('Totally get that |||| [softer] is it the *price*, or whether it works for your shop? ↗'));
+  t.ok('two questions back to back', bare('What made you take this call today? || And what happens at eight at night? ↗'));
+
+  // The best line in the product ends on a question mark. It must never be read as interrogation.
+  t.no('stating the maths first is NOT interrogation', bare("Forty-five calls a week |||| that's about a hundred and eighty a month |||| how many do you miss? ↗"));
+  t.no('risk reversal then a question', bare('I hear you — || the risk is on me, not you. || What would make you comfortable? ↗'));
+  t.no('a pure statement', bare('The setup is four thousand one time. ↘ The risk is on me, not you.'));
+  t.safe('never throws on empty or malformed', () => { isPureQuestion(''); isPureQuestion(null); });
+}
+
+t.group('the brake respects the meeting goal');
+{
+  const q = (x) => ({ line: x });
+  const three = [q('What do you mean? ↗'), q('And how long has that gone on? ↗'), q('What have you tried? ↗')];
+  t.ok('fires after 2 bare questions on a closing goal', !!interrogationBlock(three, 'one_call'));
+  t.ok('fires after 3 on discovery', !!interrogationBlock(three, 'discovery'));
+  // Discovery is SUPPOSED to be question-led - the goal block asks for 70% prospect talk time - so
+  // the brake gives it more rope and asks for a label rather than a statement.
+  t.eq('discovery tolerates two in a row', interrogationBlock(three.slice(0, 2), 'discovery'), '');
+  t.match('closing goals are told to ask for the next step', interrogationBlock(three, 'one_call'), /concrete next step/);
+  t.match('discovery is told to label first, not to stop asking', interrogationBlock(three, 'discovery'), /Label what they just said/);
+  t.eq('silent once the rep states something', interrogationBlock([q('What? ↗'), q('Forty-five a week || that is one eighty a month. ↘')], 'one_call'), '');
+  t.eq('silent at the start of a call', interrogationBlock([], 'one_call'), '');
 }
 
 t.group('the live discovery checklist tracks resistance');
