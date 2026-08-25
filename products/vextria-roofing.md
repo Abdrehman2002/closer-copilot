@@ -37,16 +37,11 @@ inspection in BEFORE the adjuster visit, not after.**
 So quoting a retail replacement price to an insurance claimant is meaningless at best, and can
 interfere with the claim at worst. **The agent branches:**
 
-```
-"Is this going through insurance, or paying out of pocket?"   ← ALWAYS ASKED FIRST
-
-  ├── INSURANCE ──► NO NUMBER. Book the inspection, on urgency.
-  │                 "Your insurance sets the number, not us. What matters is
-  │                  getting someone on the roof before your adjuster comes
-  │                  out. Do you have an adjuster date yet?"
-  │
-  └── RETAIL ─────► Qualify, then quote off his pricing as normal.
-```
+"Is this going through insurance, or paying out of pocket?"  ← ALWAYS ASKED FIRST
+  - INSURANCE -> NO NUMBER. Book the inspection, on urgency. "Your insurance sets the number, not
+    us. What matters is getting someone on the roof before your adjuster comes out. Do you have an
+    adjuster date yet?"
+  - RETAIL -> Qualify, then quote off his pricing as normal.
 
 **NEVER say Vextria works with, negotiates with, or influences insurance companies.** The honest
 claim is about timing and being on the roof first. Nothing more. Saying otherwise is both false and
@@ -137,10 +132,11 @@ Do not oversell the accuracy here. Pitch alone changes real roof area substantia
 it. The honest position is that it qualifies and books better, not that it estimates perfectly.
 
 **"Once they hear a number, I'm stuck with it."**
-> "You're right, and I'd never sell you a final price on the phone. **On insurance it gives no
-> number at all.** On retail it's a range off your pricing with the tech confirming on site. And to
-> start it only touches calls that already went to voicemail — you can't get anchored by someone who
-> never reached you."
+Lead with overflow-only. It is the half that actually removes the risk, and giving the "range
+confirmed on site" half alone answers accuracy while leaving the anchoring worry untouched:
+> "You're right — and to start it only touches calls that already went to voicemail, so **you can't
+> get anchored by someone who never reached you.** On a claim it gives no number at all anyway. On
+> retail it's a range off your pricing, confirmed on site."
 
 **"People who want a phone price are shopping."**
 > "On storm work they're not shopping, they're panicking, and they're booking whoever picks up. On
@@ -153,6 +149,12 @@ it. The honest position is that it qualifies and books better, not that it estim
 $199-297/mo self-serve tools; done-for-you agencies start around $10k.
 > "Those answer the phone. This handles a storm surge and knows the difference between a claim and a
 > cash job."
+
+**"What if it says something stupid to one of my customers? That's my name on the truck."**
+This is THE moment for overflow-only. Do not reassure, do not argue — remove the risk:
+> "That's exactly why it starts on overflow only. It never touches a call your team picks up — it
+> only ever gets the ones already going to voicemail. Worst case it does no worse than your
+> voicemail does right now, and you keep the main line."
 
 **"I've been burned by an agency before."**
 > "Most sell you a tool and vanish. We build it, run it and manage it. And it's month-to-month with

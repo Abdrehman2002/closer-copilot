@@ -116,14 +116,18 @@ Most deals in this trade are lost to **no decision**, not to a competitor.
 > "Once you give a customer a price on the phone, it's hard to get that number out of their head.
 > They won't be happy with anything higher, even if you called it an estimate."
 
-Do not argue. Agree, then separate yourself from what he is rejecting:
+Do not argue. Agree, then go STRAIGHT to overflow-only — that is the half that actually kills it:
+> "You're right — and to start it only ever touches calls that already went to voicemail. **You
+> can't get anchored by a customer who was never going to reach you.** Right now those jobs aren't
+> cheap, they're gone."
+
+Then, and only then, separate yourself from what he is rejecting:
 > "You're right, and I'd never sell you a final price on the phone. That's exactly the trust
 > problem. This gives a range off your own pricing and says out loud that the tech confirms it on
 > site — same thing you'd tell them yourself."
 
-Then the killer:
-> "And to start, it only ever touches calls that already went to voicemail. **You can't get anchored
-> by a customer who was never going to reach you.** Right now those jobs aren't cheap — they're gone."
+Never give the "range confirmed on site" half on its own. It answers the accuracy worry and leaves
+the anchoring worry untouched, which is the one he actually raised.
 
 **"Anyone who wants a price on the phone is price shopping."**
 > "True of anyone who rings ten companies. But this qualifies before it gives a number — size, age
@@ -152,6 +156,12 @@ agencies start around $10k.
 > "Perfect — this doesn't replace them. Your person answers one call at a time and goes home at
 > five. What about during a job, at lunch, at eight at night, weekends? Those are the ones you're
 > losing, and it catches every one."
+
+**"What if it says something stupid to one of my customers? That's my name on the truck."**
+This is THE moment for overflow-only. Do not reassure, do not argue — remove the risk:
+> "That's exactly why it starts on overflow only. It never touches a call your team picks up — it
+> only ever gets the ones already going to voicemail. Worst case it does no worse than your
+> voicemail does right now, and you keep the main line."
 
 **"I've been burned by an agency before."**
 > "Most sell you a tool and vanish. We build it, run it and manage it — you touch nothing. And it's
