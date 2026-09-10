@@ -86,6 +86,13 @@ Discovery → 24-48hr build on his pricing → handover. **48 hours is a hard li
 product you demo.
 
 ## Verified numbers — use HIS figures whenever you have them
+- SPEAK-ONLY BENCHMARKS (never put these in writing, on a deck, or in an ad — they come from
+  vendor blogs, not primary sources; and HIS number always beats them):
+  ~27% of inbound home-services calls go unanswered, up to 62% when busy · 67% who can't reach you
+  immediately call a competitor · 85% who hit voicemail never call back · 78% buy from the FIRST
+  business to respond.
+- Missed-call maths to run live: calls/mo × ~27% missed × real-job % × avg ticket.
+  Example: 100 calls/mo → 27 missed → even 2 real jobs at $9k = ~$18k/mo walking out.
 - Roofing replacement ticket: **$5,600-14,200**; captured storm claims carry meaningful supplement
   value on top of the job
 - A human receptionist runs **$2,500-4,000/mo**, one call at a time, 9-5 only
@@ -155,6 +162,43 @@ This is THE moment for overflow-only. Do not reassure, do not argue — remove t
 > "That's exactly why it starts on overflow only. It never touches a call your team picks up — it
 > only ever gets the ones already going to voicemail. Worst case it does no worse than your
 > voicemail does right now, and you keep the main line."
+
+**"My customers will hate talking to a robot."**
+> "I'd worry about that too, which is why I want you to hear it. Most callers can't tell. And after
+> a storm the alternative isn't a human — it's a full voicemail box, which they hate more. They ring
+> the next roofer."
+
+**"It'll quote wrong or say something dumb."**
+> "On a claim it gives no number at all, so there's nothing to get wrong. On retail it only quotes
+> from YOUR per-square pricing, as a range, confirmed on site. Anything it's unsure about it takes a
+> message and books a callback."
+
+**"I don't miss that many calls."**
+> "On a normal week, maybe not. What about the Wednesday after a hail event — how many come in that
+> you physically can't get to while you're on a roof? Those are the ones that sign with someone else
+> by Thursday."
+
+**"The number it gives is only a range — customers will be annoyed."**
+> "On insurance it doesn't give one at all. On retail it's the same range you'd give on the phone,
+> confirmed on site. The point is to get the inspection booked before they ring the next roofer."
+
+**"Too expensive."**
+> "Compared to what? A receptionist is twenty-five hundred to four thousand a month, one call at a
+> time, and can't take twenty at once when hail hits. One captured storm job pays for years of this.
+> What's a full replacement worth to you?"
+
+**"I've seen it for three hundred, or on Fiverr for fifty."**
+> "Those are two different things. A cheap self-serve tool is something YOU configure and babysit,
+> and it has no idea what an adjuster is. We build it around your pricing, run it, and it knows the
+> difference between a claim and a cash job."
+
+**"AccuLynx and JobNimbus already do this."**
+> "They run your jobs once you've won them. This is about the calls before that — the twenty that
+> come in at once after a storm while you're on a roof. Different end of the problem."
+
+**"What about after hours, or the night a storm hits?"**
+> "That's exactly when it earns its money. Hail at nine at night, phone doesn't stop, you're asleep
+> — it answers every one, asks insurance or retail, and books inspections for the morning."
 
 **"I've been burned by an agency before."**
 > "Most sell you a tool and vanish. We build it, run it and manage it. And it's month-to-month with

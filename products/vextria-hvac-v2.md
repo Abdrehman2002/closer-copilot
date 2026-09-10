@@ -83,6 +83,13 @@ week drifts to 30 days. A web agency needs two weeks to show a mockup — you sh
 running on his own pricing in a day. That is the unfair advantage; use it out loud.
 
 ## Verified numbers — use HIS figures whenever you have them
+- SPEAK-ONLY BENCHMARKS (never put these in writing, on a deck, or in an ad — they come from
+  vendor blogs, not primary sources; and HIS number always beats them):
+  ~27% of inbound home-services calls go unanswered, up to 62% when busy · 67% who can't reach you
+  immediately call a competitor · 85% who hit voicemail never call back · 78% buy from the FIRST
+  business to respond.
+- Missed-call maths to run live: calls/mo × ~27% missed × real-job % × avg ticket.
+  Example: 100 calls/mo → 27 missed → even 2 real jobs at $9k = ~$18k/mo walking out.
 - Avg HVAC replacement at stake: roughly $6,800-7,000; systems commonly $7k-20k
 - A human receptionist runs **$2,500-4,000/mo**, one call at a time, 9-5 only
 - Missing two calls a week costs roughly **$31k-52k a year**
@@ -162,6 +169,45 @@ This is THE moment for overflow-only. Do not reassure, do not argue — remove t
 > "That's exactly why it starts on overflow only. It never touches a call your team picks up — it
 > only ever gets the ones already going to voicemail. Worst case it does no worse than your
 > voicemail does right now, and you keep the main line."
+
+**"My customers will hate talking to a robot."**
+> "I'd worry about that too, which is why I want you to HEAR it. Most callers can't tell. And the
+> alternative isn't a human — it's your phone ringing out to voicemail, which they hate more. This
+> answers on the first ring and books them."
+
+**"It'll quote wrong or say something dumb."**
+> "It can't make up a price. It only quotes from YOUR pricing, as a range, then books the exact
+> estimate at the visit. Anything it's unsure about, it takes a message and books a callback. It
+> never freelances and it never dead-ends a customer."
+
+**"I don't miss that many calls."**
+> "Most owners think that until they see the number. How many calls a day, roughly? Even a couple of
+> real jobs at your ticket is serious money. Want me to pull your actual missed-call number? It's
+> usually a shock."
+
+**"The number it gives is only a range — customers will be annoyed."**
+> "It's the same range your best salesperson gives on the phone, and then it books the exact quote
+> at the visit. The point is to hook them in fifteen seconds so they book with YOU instead of the
+> next guy. A range plus a booked appointment beats voicemail and a three-day wait every time."
+
+**"Too expensive."**
+> "Compared to what? A receptionist is twenty-five hundred to four thousand a month, one call at a
+> time, no nights or weekends. This never sleeps and answers twenty at once. It pays for itself with
+> ONE saved job. What's one job worth to you?"
+
+**"I've seen it for three hundred, or on Fiverr for fifty."**
+> "Those are two different things. A fifty-dollar gig or a three-hundred-dollar self-serve tool is
+> something YOU configure, babysit and fix — and it doesn't quote. We build it around your business,
+> run it and support it, and it books jobs. You're paying for booked jobs, not a tool to manage."
+
+**"ServiceTitan already has AI."**
+> "It does — if you're on ServiceTitan, running ten million plus, with a team to configure it. This
+> is done-for-you, built around YOUR pricing, live in days, for shops your size."
+
+**"What about emergencies and after hours?"**
+> "That's where it shines. Nine at night, AC dies, office closed — it answers, gets the details,
+> flags it urgent and either transfers to on-call or books first thing. Those after-hours calls are
+> going to your competitor right now."
 
 **"I've been burned by an agency before."**
 > "Most sell you a tool and vanish. We build it, run it and manage it — you touch nothing. And it's
