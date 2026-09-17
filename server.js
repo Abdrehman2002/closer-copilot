@@ -2810,16 +2810,33 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
+      // Drives turns without audio. Takes an explicit {me, prospect} pair when given, and falls
+      // back to the canned script otherwise. It must mirror the real audio path exactly — a sim
+      // route that skips a step is how a bug survives every test you run through it.
       if (urlPath === '/simulate' && req.method === 'POST') {
-        const pair = SIM_PAIRS[s.simIdx++ % SIM_PAIRS.length];
-        addTurn(s, 'me', pair.me);
-        broadcast(s, { type: 'transcript', ch: 'me', text: pair.me });
-        addTurn(s, 'prospect', pair.prospect);
-        broadcast(s, { type: 'transcript', ch: 'prospect', text: pair.prospect });
-        emitSignal(s, pair.prospect);   // light up the instant lane for the test line too
+        const body = await readBody(req).catch(() => ({}));
+        const custom = body && (body.me || body.prospect);
+        const pair = custom
+          ? { me: String(body.me || ''), prospect: String(body.prospect || '') }
+          : SIM_PAIRS[s.simIdx++ % SIM_PAIRS.length];
+        if (pair.me) {
+          addTurn(s, 'me', pair.me);
+          s.meLastAt = Date.now();
+          broadcast(s, { type: 'transcript', ch: 'me', text: pair.me });
+        }
+        if (pair.prospect) {
+          addTurn(s, 'prospect', pair.prospect);
+          broadcast(s, { type: 'transcript', ch: 'prospect', text: pair.prospect });
+          emitSignal(s, pair.prospect);   // light up the instant lane for the test line too
+          s.lastProspectFinalAt = Date.now();
+          // same appointment watch the audio path runs — without this the sim can never
+          // exercise the one behaviour that matters most in a sprint
+          if (s.sprint && s.sprint.active) maybeOfferAppointment(s);
+        }
+        if (body && body.coach === false) return sendJson(res, { ok: true, turns: s.turns.length });
         s.lastCardAt = 0;
         setTimeout(() => coach(s), 100);
-        return sendJson(res, { ok: true });
+        return sendJson(res, { ok: true, turns: s.turns.length });
       }
 
       return sendJson(res, { error: 'not found' }, 404);
