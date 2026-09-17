@@ -241,6 +241,7 @@ function getSession(userId) {
       pendingProspectTurn: false, confSamples: null, warnedAudio: false,
       lastSignalTag: null, lastProspectFinalAt: 0,
       discovery: null, lastDiscoveryAt: 0, discoveryBusy: false,
+      sprint: null,
       simIdx: 0
     };
     sessions.set(userId, s);
@@ -360,7 +361,118 @@ quantified in THEIR numbers and you've temp-checked their confidence (1–10).
   ("seems like priorities shifted?"), and re-anchoring on their original pain.
 - If they've gone cold, coach re-opening the pain, not pitching harder.`,
   },
+  cold_sprint: {
+    label: 'Cold call sprint — dial after dial, book the appointment',
+    guidance: `THIS IS A COLD OUTBOUND DIAL. Nobody agreed to this call and there is no client history.
+Success = a BOOKED APPOINTMENT (or a live demo right now, which is better). Nothing else counts.
+- THERE ARE TWO PEOPLE ON THIS CALL. Whoever answered is probably NOT the buyer. Read who is
+  speaking before you coach. NEVER coach an objection-handle at a receptionist — handling
+  objections at the gate is what gets the call screened.
+- AT THE GATE: coach the shortest thing that gets a transfer. Instruct, never ask. No pitch, no
+  category, no product — those are the screen triggers. If they push, give context without a
+  pitch; only if they push again, the company name on peer proof.
+- NEVER coach a line that claims prior contact, a prior meeting, or a referral that did not
+  happen. It is the pattern gatekeepers are trained to catch and it burns the owner's trust.
+- WITH THE OWNER: he has not agreed to anything. Open non-invasively, get him describing his own
+  situation, and do NOT solve his pain on this call — unresolved pain is what buys the meeting.
+- THE ASK IS A SPECIFIC TIME, then silence. Try for RIGHT NOW first ("call you back in twenty
+  minutes?"). On a refusal, SHRINK the ask — never re-pitch.
+- "Send me some info" is a brush-off, not an objection. Do not trade the appointment for it.
+- Do NOT pitch price. Do NOT run discovery depth. This call is about access and a calendar slot.`,
+  },
 };
+
+// ---- COLD CALL SPRINT: appointment detection ----
+// On a sprint the closer dials all day and there is no client attached to any call, so the
+// normal "pick a deal first" flow can't run. Instead we WATCH for the one moment that matters
+// — a time getting agreed — and offer to create the client from it right there.
+//
+// Two layers on purpose. Layer 1 is a free regex gate that runs on every prospect turn; layer 2
+// is a single cheap model call that only fires when layer 1 trips. A popup mid-dial is
+// expensive attention, so the model exists to kill false positives, not to find candidates.
+const APPT_WHEN_RE = /\b(mon|tues?|wed(nes)?|thur?s?|fri|sat(ur)?|sun)(day)?\b|\btomorrow\b|\bnext week\b|\bthis (afternoon|morning|evening)\b|\b\d{1,2}\s?:\s?\d{2}\b|\b\d{1,2}\s?(a\.?m\.?|p\.?m\.?)\b|\b\d{1,2}\s?o'?clock\b|\bin (a|\d+|five|ten|fifteen|twenty|thirty) (min|minute)/i;
+const APPT_CONFIRM_RE = /\b(yeah|yep|yes|sure|okay|ok|sounds good|that works|works for me|that'?s fine|perfect|great|deal|let'?s do (it|that)|see you then|i'?ll be here|go ahead|give me a (call|ring)|call me (back|then))\b/i;
+
+// Fires only when a time was put on the table AND the PROSPECT agreed AFTER it. Order matters:
+// "Tuesday works?" / "no" must not trip, and a bare "yeah" with no time on the table must not either.
+function appointmentLikely(turns) {
+  const win = turns.slice(-8);
+  let whenAt = -1;
+  for (let i = 0; i < win.length; i++) if (APPT_WHEN_RE.test(win[i].text)) whenAt = i;
+  if (whenAt === -1) return false;
+  for (let i = whenAt; i < win.length && i <= whenAt + 3; i++) {
+    const t = win[i];
+    if (t.ch !== 'prospect') continue;
+    if (/\b(no|nope|can'?t|cannot|doesn'?t work|not (good|great|going to work)|another time|too busy)\b/i.test(t.text)) return false;
+    if (APPT_CONFIRM_RE.test(t.text)) return true;
+  }
+  return false;
+}
+
+// Layer 2. Returns null when the model disagrees that anything was actually booked, which is
+// the point — a wrong popup during a live dial costs more than a missed one.
+async function extractAppointment(turns) {
+  const transcript = turns.slice(-14).map(t => (t.ch === 'me' ? 'ME' : 'THEM') + ': ' + t.text).join('\n');
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: ANALYSIS_MODEL,
+      temperature: 0,
+      max_tokens: 220,
+      response_format: { type: 'json_object' },
+      messages: [{
+        role: 'system',
+        content: `You read the tail of a COLD CALL and decide one thing: did the prospect actually AGREE to a specific time?
+Return ONLY JSON: {"booked":true|false,"when":"","name":"","company":"","phone":"","note":""}
+- booked=true ONLY if a specific time (or an explicit "call me back in N minutes") was proposed AND the prospect agreed. A time merely offered and not accepted is booked=false. "Send me an email" is booked=false. "Call me sometime" with no time is booked=false.
+- when: exactly as said, e.g. "Thursday 3pm" or "in 20 minutes". Never invent a time.
+- name / company / phone: ONLY if stated on the call. Empty string otherwise. NEVER guess.
+- note: at most 12 words on what they actually want. Empty if unclear.`
+      }, { role: 'user', content: transcript }]
+    })
+  });
+  if (!r.ok) return null;
+  const j = await r.json();
+  let out;
+  try { out = JSON.parse(j.choices[0].message.content); } catch { return null; }
+  if (!out || out.booked !== true) return null;
+  return {
+    when: String(out.when || '').slice(0, 80),
+    name: String(out.name || '').slice(0, 80),
+    company: String(out.company || '').slice(0, 120),
+    phone: String(out.phone || '').slice(0, 40),
+    note: String(out.note || '').slice(0, 140),
+    usage: j.usage
+  };
+}
+
+// Called from the live path after a prospect turn. At most one prompt per dial — if the closer
+// dismisses it, we do not nag, because the "next dial" button resets it anyway.
+async function maybeOfferAppointment(s) {
+  const sp = s.sprint;
+  if (!sp || !sp.active || sp.prompted || sp.checking) return;
+  if (s.turns.length < 4) return;
+  if (!appointmentLikely(s.turns)) return;
+  sp.checking = true;
+  try {
+    const appt = await extractAppointment(s.turns);
+    if (!appt) return;                       // model disagreed — stay quiet, allow a later re-check
+    sp.prompted = true;
+    sp.pending = appt;
+    sp.stats.appointments++;
+    logUsage(s.jwt, s.userId, null, 'appointment_detect', ANALYSIS_MODEL, appt.usage);
+    broadcast(s, {
+      type: 'appointment',
+      dial: sp.dialNo,
+      when: appt.when, name: appt.name, company: appt.company, phone: appt.phone, note: appt.note
+    });
+  } catch (e) {
+    console.error('[appointment]', e.message);
+  } finally {
+    sp.checking = false;
+  }
+}
 
 // the closer's own voice: tone, framework, signature phrases, never-say list —
 // rarely changes call to call, so it stays in the cacheable prefix alongside the product
@@ -2433,6 +2545,119 @@ const server = http.createServer(async (req, res) => {
         const buyer = s.priorMemoryMd ? parseBrain(s.priorMemoryMd).buyer : null;
         return sendJson(res, { ok: true, brief, battlePlan, buyer, clientName, productName: s.activeProductName, goal: s.callGoal, goalLabel: s.callGoal ? GOALS[s.callGoal].label : '' });
       }
+      // ---- COLD CALL SPRINT ----
+      // One capture session, many dials, no client attached. The normal call flow assumes a deal
+      // exists before you dial; on cold outbound the client does not exist yet — that is the
+      // whole point. So the sprint keeps the socket and the loaded playbook alive across dials
+      // and only creates a client at the moment one is actually earned.
+      if (urlPath === '/api/sprint/start' && req.method === 'POST') {
+        if (!s.productContent) return sendJson(res, { ok: false, error: 'load a product first' }, 400);
+        s.callGoal = 'cold_sprint';
+        s.activeDealId = null;
+        s.turns = []; s.cards = []; s.signalCounts = {};
+        s.sprint = {
+          active: true, dialNo: 1, startedAt: Date.now(), dialStartAt: Date.now(),
+          prompted: false, checking: false, pending: null,
+          stats: { dials: 1, connects: 0, appointments: 0, clients: 0 }
+        };
+        broadcast(s, { type: 'status', msg: 'Sprint live — dial 1. I stay on between calls.' });
+        return sendJson(res, { ok: true, dial: 1, stats: s.sprint.stats, goalLabel: GOALS.cold_sprint.label });
+      }
+
+      // Hang up, dial the next one. Wipes the transcript so the coach never bleeds one
+      // prospect's context into the next stranger — the single most important thing here.
+      if (urlPath === '/api/sprint/next' && req.method === 'POST') {
+        const sp = s.sprint;
+        if (!sp || !sp.active) return sendJson(res, { ok: false, error: 'no sprint running' }, 400);
+        const { connected } = await readBody(req);
+        if (connected === true || s.turns.filter(t => t.ch === 'prospect').length >= 2) sp.stats.connects++;
+        sp.dialNo++; sp.stats.dials++;
+        sp.dialStartAt = Date.now(); sp.prompted = false; sp.pending = null;
+        s.turns = []; s.cards = []; s.signalCounts = {};
+        s.discovery = null; s.lastSignalTag = null; s.pendingCard = null;
+        clearTimeout(s.cardFlushTimer); clearTimeout(s.coachTimer);
+        s.coachGen++;                                   // orphan any coach call still in flight
+        if (s.coachAbort) { try { s.coachAbort.abort(); } catch {} s.coachAbort = null; }
+        broadcast(s, { type: 'sprint-reset', dial: sp.dialNo, stats: sp.stats });
+        return sendJson(res, { ok: true, dial: sp.dialNo, stats: sp.stats });
+      }
+
+      // The "yes, add this one" action behind the popup. This is the ONLY place a sprint writes
+      // a client, and it only ever runs on an explicit tap.
+      if (urlPath === '/api/sprint/convert' && req.method === 'POST') {
+        const sp = s.sprint;
+        if (!sp || !sp.active) return sendJson(res, { ok: false, error: 'no sprint running' }, 400);
+        const body = await readBody(req);
+        const appt = sp.pending || {};
+        const name = String(body.name || appt.name || '').trim();
+        const company = String(body.company || appt.company || '').trim();
+        if (!name && !company) return sendJson(res, { ok: false, error: 'need a name or a company' }, 400);
+        const when = String(body.when || appt.when || '').trim();
+        const phone = String(body.phone || appt.phone || '').trim();
+        const note = String(body.note || appt.note || '').trim();
+
+        const deal = (await sbRest('deals', jwt, {
+          method: 'POST',
+          body: {
+            user_id: user.id, name: name || company, company,
+            product_id: s.activeProductId || null, status: 'open',
+            labels: ['cold-call'],
+            notes: [when ? 'Booked on the cold call for ' + when : '', phone ? 'Phone: ' + phone : '', note]
+              .filter(Boolean).join(' · ')
+          }
+        }))[0];
+
+        // Seed the Client Brain from the cold call itself, so the booked meeting opens with
+        // real context instead of an empty client the closer has to re-discover.
+        let memoryMd = '';
+        try {
+          const brain = await extractClientBrain('', s.turns, s.activeProductName, name || company, company, s.signalCounts);
+          memoryMd = brain.text;
+          logUsage(jwt, user.id, deal.id, 'client_brain', ANALYSIS_MODEL, brain.usage);
+        } catch (e) { console.error('[sprint brain]', e.message); }
+        if (memoryMd) await sbRest('deals?id=eq.' + deal.id, jwt, { method: 'PATCH', prefer: 'return=minimal', body: { memory_md: memoryMd } });
+
+        await sbRest('calls', jwt, {
+          method: 'POST', prefer: 'return=minimal',
+          body: {
+            user_id: user.id, deal_id: deal.id, transcript: s.turns, cards: s.cards,
+            summary: memoryMd ? snapshotOf(memoryMd) : (note || 'Cold call — appointment booked'),
+            product_name: s.activeProductName,
+            duration_sec: Math.round((Date.now() - (sp.dialStartAt || Date.now())) / 1000),
+            goal: 'cold_sprint', outcome: 'follow_up'
+          }
+        });
+
+        // starts_at stays null unless we can resolve a real timestamp — a made-up date on the
+        // calendar is worse than the closer's own words sitting in the title.
+        let meetingId = null;
+        try {
+          const m = (await sbRest('meetings', jwt, {
+            method: 'POST',
+            body: {
+              user_id: user.id, deal_id: deal.id, product_id: s.activeProductId || null,
+              title: (name || company) + (when ? ' — ' + when : ''),
+              goal: 'discovery', status: 'scheduled', platform: 'phone'
+            }
+          }))[0];
+          meetingId = m ? m.id : null;
+        } catch (e) { console.error('[sprint meeting]', e.message); }
+
+        sp.stats.clients++;
+        sp.pending = null;
+        return sendJson(res, { ok: true, dealId: deal.id, meetingId, name: name || company, when, stats: sp.stats });
+      }
+
+      if (urlPath === '/api/sprint/end' && req.method === 'POST') {
+        const sp = s.sprint;
+        if (!sp) return sendJson(res, { ok: true, stats: null });
+        const stats = { ...sp.stats, minutes: Math.round((Date.now() - sp.startedAt) / 60000) };
+        s.sprint = null; s.callGoal = '';
+        s.turns = []; s.cards = []; s.signalCounts = {};
+        broadcast(s, { type: 'status', msg: 'Sprint ended — ' + stats.dials + ' dials, ' + stats.appointments + ' booked.' });
+        return sendJson(res, { ok: true, stats });
+      }
+
       if (urlPath === '/api/call/end' && req.method === 'POST') {
         const { outcome, savedDeal, savedDealNote, outcomeAmount, outcomeReason } = await readBody(req);
         const duration = Math.round((Date.now() - (s.callStartAt || Date.now())) / 1000);
@@ -2731,6 +2956,9 @@ function relayAudio(clientWs, ch, s) {
           s.coachTimer = setTimeout(() => { s.pendingProspectTurn = false; coach(s); }, d.speech_final ? 0 : 400);
           // throttled discovery tracker — independent of the coach cooldown, off the whisper path
           if (s.turns.length >= 3 && Date.now() - (s.lastDiscoveryAt || 0) > 12000) { s.lastDiscoveryAt = Date.now(); trackDiscovery(s); }
+          // sprint: watch for a time getting agreed. Off the whisper path — a slow appointment
+          // check must never delay the card the closer is waiting on.
+          if (s.sprint && s.sprint.active) maybeOfferAppointment(s);
         }
       } else {
         broadcast(s, { type: 'interim', ch, text });
@@ -2846,4 +3074,5 @@ module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
   stripRepeatOpener, repeatsOpener, safePartial, warmPromptCache, extractFigures, figuresBlock, praiseStallBlock, interrogationBlock, isPureQuestion, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
   deliveryStats, parseBrain, extractClientBrain, trimBrain, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS, LIVE_MODEL, OPENAI_KEY,
+  appointmentLikely,
 };

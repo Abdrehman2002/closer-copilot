@@ -23,13 +23,22 @@ type State = {
   signal: { tag: string; hint: string } | null   // instant lane: live read while prospect talks
   interim: string
   awaitingOutcome: boolean   // capture stopped, End Call modal should show
+  // ---- cold call sprint ----
+  // One capture session, many dials, no client attached until one is earned.
+  sprint: { dial: number; stats: SprintStats } | null
+  // set when the coach hears a time get agreed — drives the "add as client?" prompt
+  appointment: Appointment | null
 }
+
+export type SprintStats = { dials: number; connects: number; appointments: number; clients: number }
+export type Appointment = { dial: number; when: string; name: string; company: string; phone: string; note: string }
 
 const state: State = {
   active: false, status: '', srvOn: false,
   dealId: null, productId: null, brief: null, battlePlan: null, buyer: null, clientName: null, productName: null,
   goalLabel: null,
   transcript: [], cards: [], streaming: null, discovery: null, signal: null, interim: '', awaitingOutcome: false,
+  sprint: null, appointment: null,
 }
 
 const listeners = new Set<() => void>()
@@ -42,6 +51,54 @@ let streams: MediaStream[] = []
 let pipWin: Window | null = null
 
 const wsUrl = (p: string) => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + p
+
+// System audio from a DESKTOP app (a softphone, Zoom, Teams) needs "Entire Screen" plus the
+// share-system-audio tick. That path is Chrome 74+ on Windows, but on macOS it only arrived in
+// Chrome 141 / macOS 14.2. Say so BEFORE the picker rather than letting a rep discover it
+// mid-sprint, stare at a greyed-out checkbox, and blame the product.
+function systemAudioSupport(): { ok: boolean; note: string } {
+  const ua = navigator.userAgent
+  const mac = /Macintosh|Mac OS X/.test(ua)
+  const m = ua.match(/Chrom(?:e|ium)\/(\d+)/)
+  const chrome = m ? parseInt(m[1], 10) : 0
+  if (!chrome) return { ok: false, note: 'Desktop-app audio needs Chrome or Edge. In another browser, dial from a browser tab instead and share that tab.' }
+  if (mac && chrome < 141) return { ok: false, note: 'On this Mac, Chrome ' + chrome + ' cannot capture desktop-app audio (needs Chrome 141+ and macOS 14.2+). Dial from a browser tab and share the tab, or update Chrome.' }
+  if (mac) return { ok: true, note: 'On macOS this needs macOS 14.2 or newer — if "Share system audio" is greyed out, dial from a browser tab instead.' }
+  return { ok: true, note: '' }
+}
+
+// Shared by a normal call and a sprint. Both need exactly the same two channels; the only
+// thing that differs is what got loaded before it.
+async function beginCapture() {
+  const cap = systemAudioSupport()
+  state.status = 'Allow the mic, then share where the call is: a browser dialer → that tab with "Also share tab audio"; a desktop dialer → Entire Screen with "Share system audio"…'
+  emit()
+
+  const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
+  // The shared stream is already a clean digital feed. The browser's mic-oriented processing
+  // (echo cancellation, noise suppression, auto gain) is tuned for a room and a microphone, and
+  // on compressed speech it removes detail the transcriber needs. Turn it off for this channel.
+  const disp = await navigator.mediaDevices.getDisplayMedia({
+    video: true,
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  })
+  if (!disp.getAudioTracks().length) {
+    mic.getTracks().forEach((t) => t.stop()); disp.getTracks().forEach((t) => t.stop())
+    throw new Error(
+      'No audio came through with that share. Browser dialer: pick the TAB and tick "Also share tab audio". ' +
+      'Desktop dialer: pick "Entire Screen" and tick "Share system audio". ' + (cap.note || '')
+    )
+  }
+  disp.getVideoTracks()[0].onended = () => { if (state.active) liveCall.stopCapture() }
+  streams = [mic, disp]
+  await connectEvents()
+  const t = await token()
+  pipe(mic, 'me', t!)
+  pipe(new MediaStream(disp.getAudioTracks()), 'prospect', t!)
+  state.active = true
+  state.status = 'Live — listening on both channels.' + (cap.note ? ' ' + cap.note : '')
+  emit()
+}
 
 function pushTurn(ch: 'me' | 'prospect', text: string) {
   const last = state.transcript[state.transcript.length - 1]
@@ -77,6 +134,19 @@ async function connectEvents() {
     else if (d.type === 'signal') { state.signal = d.tag ? { tag: d.tag, hint: d.hint } : null; emit(); updatePipSignal() }
     else if (d.type === 'discovery') { state.discovery = d.pillars; emit() }
     else if (d.type === 'status') { state.status = d.msg; emit() }
+    // a time just got agreed — surface the prompt, but never interrupt the card lane
+    else if (d.type === 'appointment') {
+      state.appointment = { dial: d.dial, when: d.when, name: d.name, company: d.company, phone: d.phone, note: d.note }
+      emit()
+    }
+    // next dial: wipe the board so one prospect's context never bleeds into the next stranger
+    else if (d.type === 'sprint-reset') {
+      state.sprint = { dial: d.dial, stats: d.stats }
+      state.transcript = []; state.cards = []; state.streaming = null
+      state.discovery = null; state.signal = null; state.interim = ''
+      state.appointment = null
+      emit()
+    }
   }
 }
 
@@ -118,6 +188,58 @@ export const liveCall = {
   get: () => state,
   subscribe(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn) },
 
+  // ---- cold call sprint ----
+  // Dial after dial on one capture session. No client is attached up front, because on cold
+  // outbound the client does not exist yet — that is the whole point of the mode.
+  async startSprint(productId: string) {
+    const r = await api<{ productName: string | null; goalLabel?: string }>(
+      '/api/call/start', { productId, goal: 'cold_sprint' })
+    state.productName = r.productName
+    state.goalLabel = r.goalLabel || null
+    const sp = await api<{ dial: number; stats: SprintStats }>('/api/sprint/start', {})
+    state.sprint = { dial: sp.dial, stats: sp.stats }
+    state.dealId = null; state.productId = productId
+    state.brief = null; state.battlePlan = null; state.buyer = null; state.clientName = null
+    state.transcript = []; state.cards = []; state.streaming = null
+    state.discovery = null; state.signal = null; state.interim = ''
+    state.appointment = null; state.awaitingOutcome = false
+    emit()
+    // Capture is shared with a normal call: same two channels, one share for the WHOLE sprint.
+    // The picker appears once, not once per dial — being re-prompted every dial would make the
+    // mode unusable at 10-20 dials a day.
+    await beginCapture()
+  },
+
+  // Hang up, dial the next one. The server wipes the transcript; the sprint-reset event
+  // clears this side, so the two can never drift out of step.
+  async nextDial(connected?: boolean) {
+    const r = await api<{ dial: number; stats: SprintStats }>('/api/sprint/next', { connected })
+    state.sprint = { dial: r.dial, stats: r.stats }
+    emit()
+  },
+
+  // The "yes, add this one" tap. The ONLY path that writes a client during a sprint.
+  async addClient(f: { name: string; company: string; phone: string; when: string; note: string }) {
+    const r = await api<{ dealId: string; meetingId: string | null; name: string; stats: SprintStats }>(
+      '/api/sprint/convert', f)
+    if (state.sprint) state.sprint = { ...state.sprint, stats: r.stats }
+    state.appointment = null
+    state.status = 'Added ' + r.name + ' — Client Brain seeded from this call.'
+    emit()
+    return r
+  },
+
+  // Dismiss without adding. Deliberately does not re-prompt on this dial: a popup the closer
+  // already said no to is worse the second time.
+  dismissAppointment() { state.appointment = null; emit() },
+
+  async endSprint() {
+    const r = await api<{ stats: (SprintStats & { minutes: number }) | null }>('/api/sprint/end', {})
+    state.sprint = null; state.appointment = null; state.goalLabel = null
+    emit()
+    return r.stats
+  },
+
   async start(dealId: string, productId: string, goal?: string) {
     const r = await api<{ brief: string | null; battlePlan: string | null; buyer: State['buyer']; clientName: string | null; productName: string | null; goalLabel?: string }>(
       '/api/call/start', { dealId, productId, goal })
@@ -126,27 +248,7 @@ export const liveCall = {
     state.goalLabel = r.goalLabel || null
     state.transcript = []; state.cards = []; state.streaming = null; state.discovery = null; state.signal = null; state.interim = ''; state.awaitingOutcome = false
     state.dealId = dealId; state.productId = productId
-    state.status = 'Allow the mic, then pick your Meet tab with "Also share tab audio"…'; emit()
-
-    const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
-    // Tab audio is already a clean digital stream. The browser's mic-oriented processing
-    // (echo cancellation, noise suppression, auto gain) is tuned for a room and a microphone, and
-    // on compressed speech it removes detail the transcriber needs. Turn it off for this channel.
-    const disp = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    })
-    if (!disp.getAudioTracks().length) {
-      mic.getTracks().forEach((t) => t.stop()); disp.getTracks().forEach((t) => t.stop())
-      throw new Error('No tab audio — pick the Meet tab and tick "Also share tab audio".')
-    }
-    disp.getVideoTracks()[0].onended = () => { if (state.active) liveCall.stopCapture() }
-    streams = [mic, disp]
-    await connectEvents()
-    const t = await token()
-    pipe(mic, 'me', t!)
-    pipe(new MediaStream(disp.getAudioTracks()), 'prospect', t!)
-    state.active = true; state.status = 'Live — listening on both channels.'; emit()
+    await beginCapture()
   },
 
   /** Stop capturing audio immediately (End Call was clicked) — the outcome modal

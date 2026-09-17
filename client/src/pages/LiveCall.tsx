@@ -4,6 +4,7 @@ import { useLiveCall } from '@/lib/liveCall'
 import { Brain } from '@/components/Brain'
 import { CoachingCard } from '@/lib/coaching'
 import { OutcomeModal } from '@/components/OutcomeModal'
+import { SprintPanel } from '@/components/SprintPanel'
 import { Button } from '@/components/ui/button'
 import type { Outcome } from '@/lib/types'
 import { PictureInPicture2, Zap, Target, Check, Circle, UserRound } from 'lucide-react'
@@ -25,6 +26,7 @@ export default function LiveCall() {
 
   return (
     <div className="flex h-[calc(100vh-56px)] flex-col px-8 py-5">
+      <SprintPanel />
       {state.awaitingOutcome && !finishing && (
         <OutcomeModal onSubmit={finish} onSkip={() => finish({})} />
       )}

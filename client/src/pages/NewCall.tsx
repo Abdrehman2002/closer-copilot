@@ -56,6 +56,13 @@ export default function NewCall() {
     setBusy(true); setMsg('')
     try {
       if (!goal) { setMsg('Pick the goal of this call — it changes how the coach plays it.'); setBusy(false); return }
+      // A cold sprint has no client by definition — that is the point of it. Skip the client
+      // step entirely; one gets created only if a dial actually books something.
+      if (goal === 'cold_sprint') {
+        await liveCall.startSprint(productId)
+        navigate('/live')
+        return
+      }
       let dealId = clientId
       if (!dealId) {
         if (!ncName.trim()) { setMsg('Enter a client name or pick one.'); setBusy(false); return }
@@ -111,10 +118,14 @@ export default function NewCall() {
             <option value="">Pick a goal…</option>
             {goals.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}
           </select>
-          <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">The coach plays for this goal — on a discovery call it digs for pain instead of pushing the close.</p>
+          <p className="mt-1.5 text-[12px] leading-snug text-muted-foreground">
+            {goal === 'cold_sprint'
+              ? 'Sprint mode: no client needed. The coach stays on between dials, and asks whether to add a client only when it hears you book a time.'
+              : 'The coach plays for this goal — on a discovery call it digs for pain instead of pushing the close.'}
+          </p>
         </div>
 
-        {!clientId && (
+        {!clientId && goal !== 'cold_sprint' && (
           <div className="mt-3 grid gap-4 sm:grid-cols-2">
             <div>
               <div className="mb-1.5 text-xs font-medium text-muted-foreground">New client name</div>
@@ -128,7 +139,9 @@ export default function NewCall() {
         )}
 
         <div className="mt-4 rounded-lg border border-primary/20 bg-primary/5 px-3.5 py-3 text-[13px] leading-snug text-foreground/80">
-          Tip: at the start of the call, say <i>"I use an AI assistant that transcribes our conversation — is that okay?"</i> Then share your <b>Meet tab</b> with <b>"Also share tab audio"</b> ticked.
+          Tip: at the start of the call, say <i>"I use an AI assistant that transcribes our conversation — is that okay?"</i>{' '}
+          Then share wherever the call audio is: a <b>browser dialer or Meet/Zoom in a tab</b> → share that <b>tab</b> with <b>"Also share tab audio"</b>;
+          a <b>desktop dialer, Zoom or Teams app</b> → share <b>Entire Screen</b> with <b>"Share system audio"</b>. Use a headset either way.
         </div>
 
         <div className="mt-5 flex items-center gap-3">
