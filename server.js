@@ -2636,8 +2636,10 @@ const server = http.createServer(async (req, res) => {
             method: 'POST',
             body: {
               user_id: user.id, deal_id: deal.id, product_id: s.activeProductId || null,
-              title: (name || company) + (when ? ' — ' + when : ''),
-              goal: 'discovery', status: 'scheduled', platform: 'phone'
+              // platform is CHECK-constrained to meet/zoom/teams/other — 'phone' is rejected,
+              // so the call medium goes in the title where it is actually readable anyway
+              title: 'Call — ' + (name || company) + (when ? ' · ' + when : ''),
+              goal: 'discovery', status: 'scheduled', platform: 'other'
             }
           }))[0];
           meetingId = m ? m.id : null;
