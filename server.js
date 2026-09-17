@@ -3068,7 +3068,11 @@ wss.on('connection', async (ws, req) => {
   if (u.pathname === '/events') {
     s.events.add(ws);
     ws.send(JSON.stringify({ type: 'status', msg: 'connected' }));
-    ws.on('close', () => s.events.delete(ws));
+    // Keepalive. A sprint can run for an hour with long silences between dials, and an idle
+    // proxy will quietly drop a socket that sends nothing — taking the cards and the
+    // appointment prompt with it, with no visible error. A ping every 25s keeps it open.
+    const hb = setInterval(() => { if (ws.readyState === 1) { try { ws.ping(); } catch {} } }, 25000);
+    ws.on('close', () => { clearInterval(hb); s.events.delete(ws); });
   } else if (u.pathname === '/audio') {
     const ch = u.searchParams.get('ch') === 'me' ? 'me' : 'prospect';
     relayAudio(ws, ch, s);

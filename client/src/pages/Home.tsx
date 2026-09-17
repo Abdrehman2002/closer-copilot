@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { DashboardSkeleton } from '@/components/Skeleton'
 import { AddClientModal } from '@/components/AddClientModal'
 import {
-  Phone, Clock3, PhoneCall, Target, Snowflake, ArrowRight, UserPlus,
+  Phone, PhoneForwarded, Clock3, PhoneCall, Target, Snowflake, ArrowRight, UserPlus,
   CheckCircle2, BookOpen, Radar, Lightbulb, Trophy, Plus, Zap, Bell, Check,
 } from 'lucide-react'
 
@@ -91,6 +91,20 @@ export default function Home() {
 
         {/* RIGHT RAIL */}
         <div className="space-y-5">
+          {/* Cold outbound is a different job from a booked call: many dials, no client yet,
+              and the only win is a time on the calendar. It gets its own entry point because
+              burying it in the goal dropdown means nobody finds it. */}
+          <RailCard title="Cold call sprint" icon={PhoneForwarded}>
+            <p className="mb-3 text-[13px] leading-snug text-muted-foreground">
+              Dial after dial on one session — no client needed. The coach stays on between calls,
+              helps you past the gatekeeper, and when it hears you book a time it asks whether to
+              add them as a client.
+            </p>
+            <Button className="w-full justify-start" onClick={() => navigate('/new?goal=cold_sprint')}>
+              <PhoneForwarded className="h-4 w-4" /> Start a sprint
+            </Button>
+          </RailCard>
+
           <RailCard title="Quick actions" icon={Zap}>
             <div className="flex flex-col gap-2">
               <Button variant="outline" className="justify-start" onClick={() => navigate('/new')}><Phone className="h-4 w-4" /> Start a call</Button>
