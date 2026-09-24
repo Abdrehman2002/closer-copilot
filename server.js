@@ -2576,12 +2576,17 @@ const server = http.createServer(async (req, res) => {
         warmPromptCache(s);
 
         let battlePlan = null;
+        // A cold sprint has no client, no history and no company - a battle plan for a
+        // stranger who does not exist yet is a gpt-4.1 call bought for nothing, and it
+        // delays the start of the sprint on top.
+        if (s.callGoal !== 'cold_sprint') {
         try {
           const bp = await generateBattlePlan(s.closerProfile, s.productContent, s.activeProductName, s.priorMemoryMd, clientName, s.dealCompany, s.callGoal);
           battlePlan = bp.text;
           logUsage(jwt, user.id, s.activeDealId, 'battle_plan', PREP_MODEL, bp.usage);
         } catch (e) {
           console.error('[battle-plan]', e.message);   // non-fatal — the call still starts without it
+        }
         }
 
         // How this buyer buys, carried in from previous calls. Null on a first call, and null for
