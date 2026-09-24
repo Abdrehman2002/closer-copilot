@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { initials } from '@/lib/format'
 import { api } from '@/lib/api'
 import { trackView } from '@/lib/telemetry'
-import { House, Users, Phone, Layers, Plus, LogOut, Menu, X, BarChart3, Settings as SettingsIcon, Receipt, BookOpen, Dumbbell, ShieldCheck, Megaphone, CalendarClock } from 'lucide-react'
+import { House, Users, Phone, PhoneForwarded, Layers, Plus, LogOut, Menu, X, BarChart3, Settings as SettingsIcon, Receipt, BookOpen, Dumbbell, ShieldCheck, Megaphone, CalendarClock } from 'lucide-react'
 
 const groups = [
   {
@@ -16,6 +16,7 @@ const groups = [
       { to: '/', label: 'Dashboard', icon: House, end: true },
       { to: '/clients', label: 'Clients', icon: Users, end: false },
       { to: '/calls', label: 'Calls', icon: Phone, end: false },
+      { to: '/cold-log', label: 'Cold log', icon: PhoneForwarded, end: false },
       { to: '/meetings', label: 'Meetings', icon: CalendarClock, end: false },
       { to: '/metrics', label: 'Metrics', icon: BarChart3, end: false },
       { to: '/billing', label: 'Billing', icon: Receipt, end: false },
@@ -36,6 +37,7 @@ const titleFor = (path: string) => {
   if (path === '/') return 'Dashboard'
   if (path.startsWith('/clients')) return 'Clients'
   if (path.startsWith('/calls')) return 'Calls'
+  if (path.startsWith('/cold-log')) return 'Cold call log'
   if (path.startsWith('/meetings')) return 'Meetings'
   if (path.startsWith('/metrics')) return 'Metrics'
   if (path.startsWith('/billing')) return 'Billing'

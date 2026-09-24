@@ -15,6 +15,7 @@ const Home = lazy(() => import('@/pages/Home'))
 const Clients = lazy(() => import('@/pages/Clients'))
 const ClientDetail = lazy(() => import('@/pages/ClientDetail'))
 const Calls = lazy(() => import('@/pages/Calls'))
+const SprintLog = lazy(() => import('@/pages/SprintLog'))
 const CallDetail = lazy(() => import('@/pages/CallDetail'))
 const Playbooks = lazy(() => import('@/pages/Playbooks'))
 const PlaybookNew = lazy(() => import('@/pages/PlaybookNew'))
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/billing" element={<Suspense fallback={<PageSkeleton />}><Billing /></Suspense>} />
           <Route path="/knowledge" element={<Suspense fallback={<PageSkeleton />}><Knowledge /></Suspense>} />
           <Route path="/admin" element={<Suspense fallback={<PageSkeleton />}><Admin /></Suspense>} />
+          <Route path="/cold-log" element={<Suspense fallback={<PageSkeleton />}><SprintLog /></Suspense>} />
           <Route path="/meetings" element={<Suspense fallback={<PageSkeleton />}><Meetings /></Suspense>} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

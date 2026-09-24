@@ -7,6 +7,8 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+// explicit require: globalThis.crypto only exists from Node 19, and the host's version is not pinned
+const { randomUUID } = require('crypto');
 // WebSocket (client, for the Deepgram relay) is imported from ws so it works on
 // Node 20 too — global WebSocket only exists from Node 22.
 const { WebSocketServer, WebSocket } = require('ws');
@@ -445,6 +447,43 @@ Return ONLY JSON: {"booked":true|false,"when":"","name":"","company":"","phone":
     note: String(out.note || '').slice(0, 140),
     usage: j.usage
   };
+}
+
+// Persist one cold dial. Without this a sprint only ever recorded the 1-in-20 that converted
+// and the other nineteen vanished on "next dial" — so "how many calls did he make today" had
+// no answer at all. deal_id stays null: a cold dial that went nowhere is still a real call.
+//
+// `outcome` is CHECK-constrained to unknown/closed/lost/follow_up, so the cold-call result
+// lives in `state` where it can say what actually happened.
+async function saveDial(s, jwt, userId) {
+  const sp = s.sprint;
+  if (!sp) return null;
+  if (sp.converted) { sp.converted = false; return null; }   // convert() already wrote this one
+  if (!s.turns.length) return null;                          // nothing dialled, nothing to store
+
+  const prospectTurns = s.turns.filter(t => t.ch === 'prospect').length;
+  // Only two things here are actually observable from a transcript. Anything finer — did he
+  // get past the gatekeeper, was that the owner — would be a guess dressed up as a metric.
+  const stage = sp.prompted ? 'booked' : prospectTurns === 0 ? 'no_answer' : 'contact';
+  const first = (s.turns.find(t => t.ch === 'prospect') || {}).text || '';
+
+  try {
+    const row = (await sbRest('calls', jwt, {
+      method: 'POST',
+      body: {
+        user_id: userId, deal_id: null, goal: 'cold_sprint', outcome: 'unknown',
+        transcript: s.turns, cards: s.cards,
+        product_name: s.activeProductName,
+        duration_sec: Math.round((Date.now() - (sp.dialStartAt || Date.now())) / 1000),
+        summary: 'Dial ' + sp.dialNo + ' · ' + stage + (first ? ' · "' + first.slice(0, 90) + '"' : ''),
+        state: { sprint: { id: sp.id, dial: sp.dialNo, stage, prospectTurns, cards: s.cards.length } }
+      }
+    }))[0];
+    return row ? row.id : null;
+  } catch (e) {
+    console.error('[sprint saveDial]', e.message);
+    return null;   // losing a log row must never cost the closer his next dial
+  }
 }
 
 // Called from the live path after a prospect turn. At most one prompt per dial — if the closer
@@ -2556,8 +2595,9 @@ const server = http.createServer(async (req, res) => {
         s.activeDealId = null;
         s.turns = []; s.cards = []; s.signalCounts = {};
         s.sprint = {
-          active: true, dialNo: 1, startedAt: Date.now(), dialStartAt: Date.now(),
-          prompted: false, checking: false, pending: null,
+          active: true, id: randomUUID(), dialNo: 1,
+          startedAt: Date.now(), dialStartAt: Date.now(),
+          prompted: false, checking: false, pending: null, converted: false,
           stats: { dials: 1, connects: 0, appointments: 0, clients: 0 }
         };
         broadcast(s, { type: 'status', msg: 'Sprint live — dial 1. I stay on between calls.' });
@@ -2571,6 +2611,7 @@ const server = http.createServer(async (req, res) => {
         if (!sp || !sp.active) return sendJson(res, { ok: false, error: 'no sprint running' }, 400);
         const { connected } = await readBody(req);
         if (connected === true || s.turns.filter(t => t.ch === 'prospect').length >= 2) sp.stats.connects++;
+        await saveDial(s, jwt, user.id);   // log it BEFORE the wipe, or it is gone
         sp.dialNo++; sp.stats.dials++;
         sp.dialStartAt = Date.now(); sp.prompted = false; sp.pending = null;
         s.turns = []; s.cards = []; s.signalCounts = {};
@@ -2624,7 +2665,16 @@ const server = http.createServer(async (req, res) => {
             summary: memoryMd ? snapshotOf(memoryMd) : (note || 'Cold call — appointment booked'),
             product_name: s.activeProductName,
             duration_sec: Math.round((Date.now() - (sp.dialStartAt || Date.now())) / 1000),
-            goal: 'cold_sprint', outcome: 'follow_up'
+            goal: 'cold_sprint', outcome: 'follow_up',
+            // same shape saveDial writes, so a converted dial still groups with its session
+            // in the cold log instead of orphaning into an "adhoc" bucket
+            state: {
+              sprint: {
+                id: sp.id, dial: sp.dialNo, stage: 'booked',
+                prospectTurns: s.turns.filter(t => t.ch === 'prospect').length,
+                cards: s.cards.length
+              }
+            }
           }
         });
 
@@ -2647,12 +2697,66 @@ const server = http.createServer(async (req, res) => {
 
         sp.stats.clients++;
         sp.pending = null;
+        sp.converted = true;   // this dial already has its calls row; don't double-log it
         return sendJson(res, { ok: true, dealId: deal.id, meetingId, name: name || company, when, stats: sp.stats });
+      }
+
+      // The activity view: every cold dial, grouped by day and by sprint session, with the
+      // funnel that is actually measurable from a transcript (dialled -> someone spoke ->
+      // booked). Deliberately does NOT invent a "got past the gatekeeper" number — nothing in
+      // the audio identifies who is speaking, and a made-up metric is worse than a missing one.
+      if (urlPath === '/api/sprint/log' && req.method === 'GET') {
+        const rows = await sbRest(
+          'calls?goal=eq.cold_sprint&select=id,created_at,summary,duration_sec,product_name,state,deal_id,deals(name,company)&order=created_at.desc&limit=500', jwt);
+
+        const dials = rows.map(c => {
+          const sprint = (c.state && c.state.sprint) || {};
+          return {
+            id: c.id, created_at: c.created_at,
+            sprintId: sprint.id || null, dial: sprint.dial || null,
+            // a converted dial has a client attached; that is the strongest signal it booked
+            stage: c.deal_id ? 'booked' : (sprint.stage || 'contact'),
+            prospectTurns: sprint.prospectTurns || 0,
+            cards: sprint.cards || 0,
+            duration_sec: c.duration_sec, product_name: c.product_name,
+            summary: c.summary,
+            client: c.deals ? c.deals.name : null,
+            company: c.deals ? c.deals.company : null,
+          };
+        });
+
+        const tally = (list) => ({
+          dials: list.length,
+          contacts: list.filter(d => d.stage !== 'no_answer').length,
+          booked: list.filter(d => d.stage === 'booked').length,
+          talkSec: list.reduce((n, d) => n + (d.duration_sec || 0), 0),
+        });
+
+        const byDay = {};
+        for (const d of dials) {
+          const day = String(d.created_at).slice(0, 10);
+          (byDay[day] = byDay[day] || []).push(d);
+        }
+        const days = Object.entries(byDay).map(([day, list]) => {
+          const sessions = {};
+          for (const d of list) (sessions[d.sprintId || 'adhoc'] = sessions[d.sprintId || 'adhoc'] || []).push(d);
+          return {
+            day, ...tally(list),
+            sessions: Object.entries(sessions).map(([id, l]) => ({
+              id, ...tally(l),
+              startedAt: l[l.length - 1].created_at, endedAt: l[0].created_at,
+              dials_list: l,
+            })).sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)),
+          };
+        }).sort((a, b) => (a.day < b.day ? 1 : -1));
+
+        return sendJson(res, { total: tally(dials), days });
       }
 
       if (urlPath === '/api/sprint/end' && req.method === 'POST') {
         const sp = s.sprint;
         if (!sp) return sendJson(res, { ok: true, stats: null });
+        await saveDial(s, jwt, user.id);   // the dial that was live when he stopped still counts
         const stats = { ...sp.stats, minutes: Math.round((Date.now() - sp.startedAt) / 60000) };
         s.sprint = null; s.callGoal = '';
         s.turns = []; s.cards = []; s.signalCounts = {};
