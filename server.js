@@ -32,6 +32,11 @@ const OPENAI_KEY = process.env.OPENAI_API_KEY || '';
 const LIVE_MODEL = process.env.LIVE_MODEL || 'gpt-4.1-mini';
 const PREP_MODEL = process.env.PREP_MODEL || 'gpt-4.1';
 const ANALYSIS_MODEL = process.env.ANALYSIS_MODEL || 'gpt-4.1-mini';
+// A playbook may pin its own live model (a cold-call sprint wants speed over depth; a
+// six-figure demo wants the opposite). Allowlisted on purpose: this value comes from a user
+// row and ends up in an API call, so it is never passed through verbatim.
+const LIVE_MODEL_CHOICES = new Set(['gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4.1']);
+const liveModelFor = (s) => (s && LIVE_MODEL_CHOICES.has(s.productLiveModel) ? s.productLiveModel : LIVE_MODEL);
 const SUPA_URL = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const SUPA_KEY = process.env.SUPABASE_KEY || '';
 const PORT = Number(process.env.PORT || 7801);
@@ -243,7 +248,7 @@ function getSession(userId) {
       pendingProspectTurn: false, confSamples: null, warnedAudio: false,
       lastSignalTag: null, lastProspectFinalAt: 0,
       discovery: null, lastDiscoveryAt: 0, discoveryBusy: false,
-      sprint: null,
+      sprint: null, productLiveModel: '',
       simIdx: 0
     };
     sessions.set(userId, s);
@@ -1297,7 +1302,7 @@ async function coach(s) {
       method: 'POST',
       headers: { 'Authorization': 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: LIVE_MODEL,
+        model: liveModelFor(s),
         temperature: 0.4,
         max_tokens: 200,
         stream: true,
@@ -1365,7 +1370,7 @@ async function coach(s) {
       try {
         while (true) { const { done, value } = await reader.read(); if (done) break; consume(value); }
       } catch { /* aborted or dropped — usage below is simply skipped */ }
-      logUsage(s.jwt, s.userId, s.activeDealId, 'live', LIVE_MODEL, streamUsage);
+      logUsage(s.jwt, s.userId, s.activeDealId, 'live', liveModelFor(s), streamUsage);
     })();
     if (stale()) return;
 
@@ -1395,7 +1400,7 @@ async function coach(s) {
         const j2 = await r2.json();
         if (stale()) return;
         if (j2.error) throw new Error(j2.error.message);
-        logUsage(s.jwt, s.userId, s.activeDealId, 'live_retry', LIVE_MODEL, j2.usage);
+        logUsage(s.jwt, s.userId, s.activeDealId, 'live_retry', liveModelFor(s), j2.usage);
         const raw2 = (j2.choices[0].message.content || '');
         p = parseCoach(raw2);
         v = p.decision === 'FIRE' && p.line ? validateLine(p.line, guardSources, neverSay) : { ok: false, issue: 'no line on retry' };
@@ -2532,13 +2537,14 @@ const server = http.createServer(async (req, res) => {
         s.discovery = null; s.lastDiscoveryAt = 0; s.signalCounts = {}; s.lastSignalTag = null;
 
         const [prodRow, profRows, kbRows] = await Promise.all([
-          s.activeProductId ? sbRest('products?id=eq.' + s.activeProductId + '&select=name,content,metrics', jwt) : [],
+          s.activeProductId ? sbRest('products?id=eq.' + s.activeProductId + '&select=name,content,metrics,live_model', jwt) : [],
           sbRest('profiles?user_id=eq.' + user.id + '&select=tone,framework,signature_phrases,never_say', jwt),
           sbRest('documents?select=name,content&' + (s.activeDealId ? 'or=(scope.eq.global,deal_id.eq.' + s.activeDealId + ')' : 'scope=eq.global'), jwt),
         ]);
         const prod = prodRow[0];
         s.productContent = (prod && prod.content) || '';
         s.productMetrics = (prod && prod.metrics) || null;   // what THIS playbook listens for and works out
+        s.productLiveModel = (prod && prod.live_model) || '';
         s.activeProductName = (prod && prod.name) || '';
         // remember what was actually sold to this client, so the next call with them opens on
         // the right product instead of whichever one happens to be oldest
