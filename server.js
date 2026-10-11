@@ -239,6 +239,70 @@ async function creditsExhausted(jwt) {
   } catch { return false; }
 }
 
+// Is the MODEL actually reachable, or is the account dry?
+//
+// creditsExhausted() above checks our own per-user budget in Supabase. It says nothing
+// about OpenAI's balance, so a call could start looking perfectly healthy while every
+// single card died on a 429. That is not hypothetical: between 24 Sep and 11 Oct 2026 the
+// account had no credits, the UI gave no sign of it at call start, and the only clue was a
+// status line mid-call reading "coach error: OpenAI 429 {...}". A closer on a live meeting
+// does not read status lines.
+//
+// So: one tiny request before the call, cached, and a refusal the closer cannot miss.
+let modelProbe = { at: 0, ok: true, reason: '' };
+const MODEL_PROBE_TTL = 60000;
+
+async function modelReachable(force) {
+  if (!force && Date.now() - modelProbe.at < MODEL_PROBE_TTL) return modelProbe;
+  const out = { at: Date.now(), ok: true, reason: '' };
+  try {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + OPENAI_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: LIVE_MODEL, max_tokens: 1, messages: [{ role: 'user', content: 'ok' }] }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      const body = await r.text();
+      let code = '', message = '';
+      try { const j = JSON.parse(body); code = (j.error && j.error.code) || ''; message = (j.error && j.error.message) || ''; } catch { message = body.slice(0, 200); }
+      // Only a definitive billing or auth failure blocks a call. A 500 or a rate-limit
+      // spike is transient, and refusing to start a meeting over one would be worse than
+      // the problem - the closer can still run the call, just without whispers.
+      if (r.status === 401 || code === 'invalid_api_key') { out.ok = false; out.reason = 'The OpenAI API key is not valid.'; }
+      else if (code === 'credit_balance_exhausted' || code === 'insufficient_quota' || /no credits remaining|exceeded your current quota/i.test(message)) {
+        out.ok = false; out.reason = 'The OpenAI account is out of credits, so the coach cannot produce cards. Top it up at platform.openai.com/settings/organization/billing.';
+      }
+    }
+  } catch { /* network wobble - never block a call on one */ }
+  modelProbe = out;
+  return out;
+}
+
+// Turn a provider error into something a closer can read mid-call, and say whether it
+// means the coach is DEAD (so the next call start should refuse) or merely had a bad
+// moment. Raw JSON in a status line is unreadable at the exact moment attention is
+// elsewhere.
+//
+// Separate and exported because the first version of this lived inline in a catch block
+// and shipped with a regex reading /<0x08>401<0x08>/ - a backspace byte, not a word
+// boundary - so the invalid-key branch could never fire. The test that was supposed to
+// cover it grepped the source for a message string and passed happily. Logic that matters
+// has to be callable.
+function explainCoachFailure(message) {
+  const m = String(message || '');
+  if (/no credits remaining|credit_balance_exhausted|insufficient_quota|exceeded your current quota/i.test(m)) {
+    return { fatal: true, reason: 'The OpenAI account is out of credits.',
+      human: 'COACH OFFLINE - the OpenAI account is out of credits. No cards will fire until it is topped up.' };
+  }
+  if (new RegExp('(^|[^0-9])401([^0-9]|$)').test(m) || /invalid_api_key|incorrect api key/i.test(m)) {
+    return { fatal: true, reason: 'The OpenAI API key is not valid.',
+      human: 'COACH OFFLINE - the OpenAI API key is not valid. No cards will fire.' };
+  }
+  // Everything else is transient: say it plainly and keep the call running.
+  return { fatal: false, reason: '', human: 'coach error: ' + m.slice(0, 160) };
+}
+
 const tokenCache = new Map();   // jwt -> {user, exp}
 async function getUser(jwt) {
   if (!jwt) return null;
@@ -1462,7 +1526,10 @@ async function coach(s) {
     // an aborted run is the normal case when the prospect keeps talking — not an error
     if (e.name === 'AbortError' || stale()) return;
     console.error('[coach]', e.message);
-    broadcast(s, { type: 'status', msg: 'coach error: ' + e.message });
+    const f = explainCoachFailure(e.message);
+    if (f.fatal) modelProbe = { at: 0, ok: false, reason: f.reason };
+    console.error('[coach]', s.userId.slice(0, 8), f.human);
+    broadcast(s, { type: 'status', msg: f.human });
   }
 }
 
@@ -2566,6 +2633,13 @@ const server = http.createServer(async (req, res) => {
           admin.logActivity(jwt, { level: 'warn', category: 'billing', action: 'blocked_no_credits', user_id: user.id });
           return sendJson(res, { error: 'Out of credits - ask an admin to top up your balance.' }, 402);
         }
+        // ...and the same question about the UPSTREAM account, which the check above does
+        // not ask. Starting a call whose coach is dead is worse than refusing to start it.
+        const reach = await modelReachable();
+        if (!reach.ok) {
+          admin.logActivity(jwt, { level: 'error', category: 'billing', action: 'blocked_model_unreachable', user_id: user.id, detail: { reason: reach.reason } });
+          return sendJson(res, { error: 'Cards will not fire: ' + reach.reason, code: 'model_unreachable' }, 402);
+        }
         const { dealId, productId, goal } = await readBody(req);
         admin.logActivity(jwt, { category: 'call', action: 'call_started', user_id: user.id, target: dealId || '', detail: { goal: goal || '' } });
         s.activeDealId = dealId || null;
@@ -3262,5 +3336,5 @@ module.exports = {
   buildSystemPrompt, parseCoach, validateLine, detectTrigger, classifyMoment, coach,
   stripRepeatOpener, repeatsOpener, safePartial, warmPromptCache, extractFigures, figuresBlock, praiseStallBlock, interrogationBlock, isPureQuestion, evalExpr, DEFAULT_METRICS, compileMetrics, costUsd,
   deliveryStats, parseBrain, extractClientBrain, trimBrain, GOALS, PLAYBOOK, FORMAT_RULES, DISCOVERY_PILLARS, LIVE_MODEL, OPENAI_KEY,
-  appointmentLikely,
+  appointmentLikely, modelReachable, explainCoachFailure,
 };

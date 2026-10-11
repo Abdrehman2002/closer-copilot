@@ -184,6 +184,13 @@ function stopMedia() {
   recs = []; socks = []; streams = []
 }
 
+// api() returns r.json() without ever looking at r.ok, so a refusal from the server
+// arrives as an ordinary object and start() would sail straight past it into
+// beginCapture(). That is how /api/call/start could answer 402 "Out of credits" and the
+// call would start regardless. Refusing to start a call is only worth something if the
+// client actually stops. NewCall catches this and shows the message.
+function refuse(r: any) { if (r && r.error) throw new Error(r.error) }
+
 export const liveCall = {
   get: () => state,
   subscribe(fn: () => void) { listeners.add(fn); return () => listeners.delete(fn) },
@@ -194,6 +201,7 @@ export const liveCall = {
   async startSprint(productId: string) {
     const r = await api<{ productName: string | null; goalLabel?: string }>(
       '/api/call/start', { productId, goal: 'cold_sprint' })
+    refuse(r)
     state.productName = r.productName
     state.goalLabel = r.goalLabel || null
     const sp = await api<{ dial: number; stats: SprintStats }>('/api/sprint/start', {})
@@ -243,6 +251,7 @@ export const liveCall = {
   async start(dealId: string, productId: string, goal?: string) {
     const r = await api<{ brief: string | null; battlePlan: string | null; buyer: State['buyer']; clientName: string | null; productName: string | null; goalLabel?: string }>(
       '/api/call/start', { dealId, productId, goal })
+    refuse(r)
     state.brief = r.brief; state.battlePlan = r.battlePlan; state.buyer = r.buyer || null
     state.clientName = r.clientName; state.productName = r.productName
     state.goalLabel = r.goalLabel || null
