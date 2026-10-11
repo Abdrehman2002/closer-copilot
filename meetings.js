@@ -33,7 +33,11 @@ const platformOf = (url = '') => {
 };
 
 module.exports = function createMeetings(ctx) {
-  const { sbRest, chatOnce, sendJson, readBody, logActivity, ANALYSIS_MODEL, PREP_MODEL } = ctx;
+  const { sbRest, sbAdmin, hasServiceKey, chatOnce, sendJson, readBody, logActivity, ANALYSIS_MODEL, PREP_MODEL } = ctx;
+
+  // One accessor for both paths: a request carries a user jwt; the background loop has none
+  // and runs as the service role. Explicit, so a handler can never fall into service access.
+  const db = (jwt, path, opts) => (jwt ? sbRest(path, jwt, opts) : sbAdmin(path, opts));
 
   // self-hosted worker wins if configured — it's free; Recall is the managed fallback
   const botMode = () => (WORKER_URL ? 'self' : RECALL_KEY ? 'recall' : 'manual');
@@ -134,7 +138,7 @@ module.exports = function createMeetings(ctx) {
       botId = bot.id;
     }
 
-    await sbRest(`meetings?id=eq.${meeting.id}`, jwt, {
+    await db(jwt, `meetings?id=eq.${meeting.id}`, {
       method: 'PATCH', prefer: 'return=minimal',
       body: { bot_id: botId, bot_provider: mode, status: 'joining', error: '' },
     });
@@ -161,7 +165,7 @@ module.exports = function createMeetings(ctx) {
         patch.status = 'done';
         if (!turns.length) patch.error = 'the bot joined but captured no captions — were captions available in that call?';
       }
-      await sbRest(`meetings?id=eq.${meeting.id}`, jwt, { method: 'PATCH', prefer: 'return=minimal', body: patch });
+      await db(jwt, `meetings?id=eq.${meeting.id}`, { method: 'PATCH', prefer: 'return=minimal', body: patch });
       return { ...meeting, ...patch };
     }
 
@@ -189,7 +193,7 @@ module.exports = function createMeetings(ctx) {
     }
     if (code === 'fatal') patch.error = 'bot failed to join';
 
-    await sbRest(`meetings?id=eq.${meeting.id}`, jwt, { method: 'PATCH', prefer: 'return=minimal', body: patch });
+    await db(jwt, `meetings?id=eq.${meeting.id}`, { method: 'PATCH', prefer: 'return=minimal', body: patch });
     return { ...meeting, ...patch };
   }
 
@@ -295,22 +299,40 @@ module.exports = function createMeetings(ctx) {
   }
 
   // Background loop: dispatch bots for meetings that are due, and poll running ones.
-  // Only does anything when a provider is configured.
-  const seen = new Map();   // jwt cache per user so the loop can act between requests
+  //
+  // With a service key this runs across ALL users from one query and survives restarts.
+  // Without one it can only act for users who have made a request recently, because the
+  // only credential available is a cached user JWT that expires in about an hour - which
+  // meant auto-join silently did nothing after any redeploy.
+  const seen = new Map();   // userId -> jwt, the no-service-key fallback only
   function remember(userId, jwt) { seen.set(userId, jwt); }
 
+  const DUE = (soon) => `meetings?select=*&auto_join=is.true&status=eq.scheduled` +
+    `&starts_at=lte.${soon}&meeting_url=neq.`;
+  const RUNNING = 'meetings?select=*&status=in.(joining,recording,processing)';
+
   async function tick() {
-    if (botMode() === 'manual' || seen.size === 0) return;
+    if (botMode() === 'manual') return;
+    const soon = new Date(Date.now() + 2 * 60000).toISOString();
+
+    if (hasServiceKey) {
+      try {
+        const due = await sbAdmin(DUE(soon));
+        for (const m of due) { try { await dispatchBot(null, m); } catch (e) { console.error('[meet dispatch]', e.message); } }
+        const running = await sbAdmin(RUNNING);
+        for (const m of running) { try { await syncBot(null, m.user_id, m); } catch (e) { console.error('[meet sync]', e.message); } }
+      } catch (e) { console.error('[meet tick]', e.message); }
+      return;
+    }
+
+    if (seen.size === 0) return;
     for (const [userId, jwt] of seen) {
       try {
-        const soon = new Date(Date.now() + 2 * 60000).toISOString();
-        const due = await sbRest(
-          `meetings?select=*&auto_join=is.true&status=eq.scheduled&starts_at=lte.${soon}&meeting_url=neq.`, jwt);
+        const due = await sbRest(DUE(soon), jwt);
         for (const m of due) { try { await dispatchBot(jwt, m); } catch { /* keep going */ } }
-
-        const running = await sbRest(`meetings?select=*&status=in.(joining,recording,processing)`, jwt);
+        const running = await sbRest(RUNNING, jwt);
         for (const m of running) { try { await syncBot(jwt, userId, m); } catch { /* keep going */ } }
-      } catch { /* user's token expired — it refreshes on their next request */ }
+      } catch { /* token expired - refreshes on their next request */ }
     }
   }
   setInterval(tick, 30000).unref?.();

@@ -159,19 +159,44 @@ async function sbRest(pathq, jwt, opts = {}) {
   return t ? JSON.parse(t) : null;
 }
 
+// Service-role REST. Bypasses row-level security, so it is ONLY for background work with
+// no user request behind it - the auto-join loop must run whether or not anyone is logged
+// in. Never call this from a request handler.
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+async function sbAdmin(pathq, opts = {}) {
+  if (!SERVICE_KEY) throw new Error('SUPABASE_SERVICE_KEY not configured');
+  const r = await fetch(SUPA_URL + '/rest/v1/' + pathq, {
+    method: opts.method || 'GET',
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: 'Bearer ' + SERVICE_KEY,
+      'Content-Type': 'application/json',
+      Prefer: opts.prefer || 'return=representation'
+    },
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  const t = await r.text();
+  if (!r.ok) throw new Error('supabase(service) ' + r.status + ': ' + t.slice(0, 200));
+  return t ? JSON.parse(t) : null;
+}
+
 // fire-and-forget token/cost logging — never blocks or fails the call it's attached to
 function logUsage(jwt, userId, dealId, kind, model, usage) {
   if (!usage) return;
   // cached_tokens is what OpenAI actually served from cache on THIS call — the direct signal
   // for whether prompt-ordering changes are working, instead of inferring it from the bill later.
-  sbRest('usage_events', jwt, {
+  // Background work (the meeting bot) has no user jwt. Those rows go in as service role
+  // rather than being dropped - otherwise bot summaries are invisible in cost reporting.
+  const row = {
     method: 'POST', prefer: 'return=minimal',
     body: {
       user_id: userId, deal_id: dealId || null, kind, model,
       prompt_tokens: usage.prompt_tokens || 0, completion_tokens: usage.completion_tokens || 0,
       cached_tokens: (usage.prompt_tokens_details && usage.prompt_tokens_details.cached_tokens) || 0
     }
-  }).catch(e => console.error('[usage-log]', e.message));
+  };
+  (jwt ? sbRest('usage_events', jwt, row) : sbAdmin('usage_events', row))
+    .catch(e => console.error('[usage-log]', e.message));
 
   // Draw the spend down against this account's credit balance. Deliberately NOT awaited and
   // deliberately never throwing: this runs on the live coaching path, and a slow or failing
@@ -2133,7 +2158,7 @@ const admin = require('./admin')({
 // ---- meeting notetaker (schedule -> prep -> optional bot -> notes) ----
 // admin reads the bot mode off this, so it is created after `admin` and linked back below
 const meetings = require('./meetings')({
-  sbRest, chatOnce, sendJson, readBody,
+  sbRest, sbAdmin, hasServiceKey: !!SERVICE_KEY, chatOnce, sendJson, readBody,
   logActivity: (jwt, row) => admin.logActivity(jwt, row),
   ANALYSIS_MODEL, PREP_MODEL,
 });
