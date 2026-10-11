@@ -352,10 +352,27 @@ module.exports = function createMeetings(ctx) {
         sendJson(res, { error: 'This link is no longer available.' }, 404);
         return true;
       }
+      // Build the response field by field rather than spreading `data`. share_view
+      // already redacts in SQL, so this is the second lock on the same door: if that
+      // function is ever widened, or another caller is wired up, a spread would carry
+      // `prep` and everyone's email addresses out to a stranger and nothing here would
+      // notice. An allowlist fails closed instead.
       const rec = data.recording || null;
       sendJson(res, {
-        ...data,
-        recording: rec ? { ...rec, url: mediaUrl(rec), key: undefined } : null,
+        title: data.title || '',
+        platform: data.platform || '',
+        starts_at: data.starts_at || null,
+        duration_min: data.duration_min || null,
+        status: data.status || '',
+        summary: data.summary || '',
+        action_items: Array.isArray(data.action_items) ? data.action_items : [],
+        transcript: Array.isArray(data.transcript) ? data.transcript : [],
+        recording: rec ? {
+          url: mediaUrl(rec),
+          mime: rec.mime || '',
+          duration_sec: rec.duration_sec || null,
+          bytes: rec.bytes || null,
+        } : null,
       });
     } catch (e) {
       console.error('[share]', e.message);
