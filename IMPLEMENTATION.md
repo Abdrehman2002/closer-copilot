@@ -135,10 +135,31 @@ BOT_SHARED_SECRET=                                # if set, worker requires x-bo
 RECALL_API_KEY=                                   # managed, also does Zoom/Teams
 RECALL_REGION=us-west-2
 BOT_NAME=Closer Copilot Notetaker
+
+# optional — the shared recap page at /s/<token>
+APP_ORIGIN=https://your-app.up.railway.app   # absolute links; relative /s/… if unset
+RECORDING_PUBLIC_BASE=                       # where uploaded recordings are served from
+SHARE_TTL_DAYS=0                             # 0 = links never expire
 ```
 
 `meetings.js` picks the provider: `BOT_WORKER_URL` → `self`, else `RECALL_API_KEY` →
 `recall`, else `manual`. Manual still does prep briefs and notes; only auto-join is absent.
+
+### Sharing a recap
+
+`POST /api/meetings/:id/share` mints a 128-bit token and returns the URL; `DELETE` revokes
+it; `GET` reports state, views and expiry. Anyone with the link opens `/s/<token>` — no
+account, no login.
+
+The guest read is the one place in the app with no authenticated user, so it goes through
+neither RLS (there is no `auth.uid()`) nor the service role (a request handler must never
+hold it). It calls the **`share_view` SQL function on the anon key** — `security definer`,
+enforces expiry in SQL, and returns only guest-safe fields. `prep`, `meeting_url`,
+`user_id`, `deal_id` and everyone's email addresses are not in its output, so widening what
+a guest sees means editing that migration rather than any JavaScript.
+
+Without `RECORDING_PUBLIC_BASE` the page renders "no recording is attached" instead of a
+dead player; summary, next steps and transcript all work regardless.
 
 ---
 

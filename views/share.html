@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="referrer" content="no-referrer">
+<title>Meeting recap</title>
+<style>
+  /* Light ground on purpose. This page is READ - a recap earns real dwell time, and
+     reading favours light. The app's own dark chrome would be the wrong call here. */
+  :root{
+    --bg:#f7f8fa; --card:#ffffff; --ink:#101522; --ink-2:#4a5260; --ink-3:#8b93a1;
+    --line:#e5e8ee; --accent:#0a6cf0; --accent-soft:#eef4ff; --radius:14px;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--sans);
+    font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:780px; margin:0 auto; padding:32px 16px 96px}
+  @media(min-width:720px){ .wrap{padding:48px 24px 120px} }
+
+  header{margin-bottom:24px}
+  .eyebrow{
+    font-size:11px; letter-spacing:.11em; text-transform:uppercase;
+    color:var(--ink-3); font-weight:600; margin:0 0 10px
+  }
+  h1{font-size:26px; line-height:1.25; margin:0 0 10px; letter-spacing:-.015em; font-weight:650}
+  @media(min-width:720px){ h1{font-size:32px} }
+  .meta{display:flex; flex-wrap:wrap; gap:6px 14px; color:var(--ink-2); font-size:14px; margin:0}
+  .meta span{display:inline-flex; align-items:center; gap:6px}
+
+  section{
+    background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:20px; margin-top:16px
+  }
+  @media(min-width:720px){ section{padding:24px} }
+  h2{
+    font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--ink-3);
+    margin:0 0 14px; font-weight:650
+  }
+
+  .player{
+    width:100%; display:block; background:#0b0e14; border-radius:10px;
+    border:1px solid var(--line)
+  }
+  /* A video element keeps Chrome's default 150px height when only its width is set, so
+     width:100% alone letterboxes a 16:9 recording into a 4.5:1 strip. Measured at 682x152
+     before this rule existed. */
+  video.player{aspect-ratio:16/9; height:auto}
+  audio.player{height:48px; background:transparent; border:0}
+  .nomedia{
+    display:flex; gap:12px; align-items:flex-start; color:var(--ink-2);
+    font-size:14px; background:var(--bg); border:1px dashed var(--line);
+    border-radius:10px; padding:16px
+  }
+  .dur{color:var(--ink-3); font-size:13px; margin:10px 0 0}
+
+  .prose{font-size:16px; color:var(--ink); margin:0}
+
+  ol.actions{margin:0; padding:0; list-style:none; counter-reset:a}
+  ol.actions li{
+    counter-increment:a; position:relative; padding:12px 0 12px 38px;
+    border-top:1px solid var(--line)
+  }
+  ol.actions li:first-child{border-top:0; padding-top:0}
+  ol.actions li:first-child::before{top:0}
+  ol.actions li::before{
+    content:counter(a); position:absolute; left:0; top:12px;
+    width:24px; height:24px; border-radius:50%;
+    background:var(--accent-soft); color:var(--accent);
+    font-size:12px; font-weight:650; font-variant-numeric:tabular-nums;
+    display:flex; align-items:center; justify-content:center
+  }
+
+  .turn{display:grid; grid-template-columns:1fr; gap:2px; padding:12px 0; border-top:1px solid var(--line)}
+  .turn:first-child{border-top:0; padding-top:0}
+  @media(min-width:600px){
+    .turn{grid-template-columns:108px 1fr; gap:16px}
+  }
+  .who{
+    font-size:12px; font-weight:650; color:var(--ink-3);
+    letter-spacing:.02em; padding-top:2px
+  }
+  .turn.me .who{color:var(--accent)}
+  .said{margin:0; color:var(--ink)}
+  details.tx > summary{
+    cursor:pointer; color:var(--accent); font-size:14px; font-weight:600;
+    list-style:none
+  }
+  details.tx > summary::-webkit-details-marker{display:none}
+  details.tx > summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:4px}
+  .turns-box{margin-top:16px}
+
+  .center{text-align:center; padding:80px 16px; color:var(--ink-2)}
+  .center h1{font-size:22px; margin-bottom:8px}
+  footer{margin-top:28px; color:var(--ink-3); font-size:12px; text-align:center}
+  .skel{color:var(--ink-3); font-size:14px}
+  .muted{color:var(--ink-3); font-size:14px; margin:0}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><p class="skel">Loading the recap...</p></div>
+
+<script>
+(function(){
+  var app = document.getElementById('app');
+  var NL = String.fromCharCode(10);
+
+  function esc(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+
+  function fail(msg){
+    document.title = 'Link unavailable';
+    app.innerHTML =
+      '<div class="center"><h1>' + esc(msg) + '</h1>' +
+      '<p class="muted">The person who sent it can share a new link.</p></div>';
+  }
+
+  // The token is the last path segment of /s/<token>.
+  var token = (location.pathname.split('/').filter(Boolean)[1] || '').trim();
+  if (!token) { fail('This link is not valid.'); return; }
+
+  function when(iso){
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    var date = d.toLocaleDateString(undefined, { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+    var time = d.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+    return date + ' at ' + time;
+  }
+
+  function mmss(sec){
+    sec = Math.max(0, Math.round(Number(sec) || 0));
+    var h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+    var pad = function(n){ return n < 10 ? '0'+n : ''+n; };
+    return h ? h + ':' + pad(m) + ':' + pad(s) : m + ':' + pad(s);
+  }
+
+  // "Me" is the host; everyone else is named by the transcript, which takes the label
+  // from the meeting itself, so it is their real display name.
+  function isHost(who){ return /^(me|you|host)$/i.test(String(who || '').trim()); }
+
+  function render(d){
+    var title = d.title || 'Meeting recap';
+    document.title = title;
+
+    var out = [];
+    out.push('<header>');
+    out.push('<p class="eyebrow">Meeting recap</p>');
+    out.push('<h1>' + esc(title) + '</h1>');
+    var bits = [];
+    var w = when(d.starts_at);
+    if (w) bits.push('<span>' + esc(w) + '</span>');
+    if (d.duration_min) bits.push('<span>' + esc(d.duration_min) + ' min</span>');
+    if (bits.length) out.push('<p class="meta">' + bits.join('') + '</p>');
+    out.push('</header>');
+
+    var rec = d.recording;
+    out.push('<section><h2>Recording</h2>');
+    if (rec && rec.url) {
+      var audioOnly = /^audio\//i.test(rec.mime || '');
+      var tag = audioOnly ? 'audio' : 'video';
+      out.push('<' + tag + ' class="player" controls preload="metadata" playsinline src="' + esc(rec.url) + '"></' + tag + '>');
+      if (rec.duration_sec) out.push('<p class="dur">' + esc(mmss(rec.duration_sec)) + ' long</p>');
+    } else {
+      // Honest about the gap rather than showing a dead player. A video element pointed
+      // at nothing looks like a bug on the sender's side.
+      out.push('<div class="nomedia"><span>&#9633;</span><span>No recording is attached to this meeting.' +
+               (d.summary ? ' The notes below were written from the transcript.' : '') + '</span></div>');
+    }
+    out.push('</section>');
+
+    if (d.summary && String(d.summary).trim()) {
+      var para = esc(d.summary).split(NL).join('<br>');
+      out.push('<section><h2>Summary</h2><p class="prose">' + para + '</p></section>');
+    }
+
+    var acts = (Array.isArray(d.action_items) ? d.action_items : []).map(function(a){
+      if (a && typeof a === 'object') return a.text || a.item || a.title || '';
+      return a;
+    }).filter(function(a){ return String(a || '').trim(); });
+    if (acts.length) {
+      out.push('<section><h2>Next steps</h2><ol class="actions">');
+      acts.forEach(function(a){ out.push('<li>' + esc(a) + '</li>'); });
+      out.push('</ol></section>');
+    }
+
+    var turns = (Array.isArray(d.transcript) ? d.transcript : []).filter(function(t){
+      return t && String(t.text || '').trim();
+    });
+    if (turns.length) {
+      // Collapsed by default: the summary is the point, the transcript is the evidence.
+      // Timestamps are deliberately NOT shown - the turns carry wall-clock stamps, not an
+      // offset into the recording, so any seek link would land in the wrong place.
+      out.push('<section><h2>Transcript</h2>');
+      out.push('<details class="tx"><summary>Show the full transcript (' + turns.length + ' turns)</summary>');
+      out.push('<div class="turns-box">');
+      turns.forEach(function(t){
+        var who = t.speaker || (t.ch === 'me' ? 'Me' : 'Them');
+        out.push('<div class="turn' + (isHost(who) ? ' me' : '') + '">' +
+                 '<div class="who">' + esc(who) + '</div>' +
+                 '<p class="said">' + esc(t.text) + '</p></div>');
+      });
+      out.push('</div></details></section>');
+    }
+
+    if (!(rec && rec.url) && !d.summary && !turns.length) {
+      out.push('<section><p class="muted">This meeting has no notes yet. Check back once it has been written up.</p></section>');
+    }
+
+    out.push('<footer>Shared privately. Anyone with this link can view it.</footer>');
+    app.innerHTML = out.join('');
+  }
+
+  fetch('/api/share/' + encodeURIComponent(token), { headers: { Accept: 'application/json' } })
+    .then(function(r){
+      return r.json().then(function(j){ return { ok: r.ok, j: j }; });
+    })
+    .then(function(res){
+      if (!res.ok || !res.j || res.j.error) {
+        fail((res.j && res.j.error) || 'This link is no longer available.');
+        return;
+      }
+      render(res.j);
+    })
+    .catch(function(){ fail('Could not load this recap.'); });
+})();
+</script>
+</body>
+</html>

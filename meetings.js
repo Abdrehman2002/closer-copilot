@@ -26,6 +26,15 @@ const RECALL_BASE = `https://${RECALL_REGION}.recall.ai/api/v1`;
 const WORKER_URL = (process.env.BOT_WORKER_URL || '').replace(/\/$/, '');
 const WORKER_SECRET = process.env.BOT_SHARED_SECRET || '';
 
+// Where a recording actually lives once uploaded. A share page shows a player ONLY when
+// both a ready recording row and this base exist - otherwise it says the recording is not
+// available, because a <video> pointing at a storage key is a broken player, not a feature.
+const MEDIA_BASE = (process.env.RECORDING_PUBLIC_BASE || process.env.R2_PUBLIC_BASE || '').replace(/\/$/, '');
+// Absolute origin for the links we hand out. Railway sets neither, so it falls back to a
+// relative path, which still works when the recipient opens it in a browser.
+const APP_ORIGIN = (process.env.APP_ORIGIN || process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
+const SHARE_TTL_DAYS = Number(process.env.SHARE_TTL_DAYS || 0);   // 0 = no expiry
+
 const platformOf = (url = '') => {
   const u = url.toLowerCase();
   if (u.includes('meet.google.')) return 'meet';
@@ -139,7 +148,7 @@ function canRecordingTransition(from, to) {
 }
 
 module.exports = function createMeetings(ctx) {
-  const { sbRest, sbAdmin, hasServiceKey, chatOnce, sendJson, readBody, logActivity, ANALYSIS_MODEL, PREP_MODEL } = ctx;
+  const { sbRest, sbAdmin, hasServiceKey, chatOnce, sendJson, readBody, logActivity, ANALYSIS_MODEL, PREP_MODEL, anonKey } = ctx;
 
   // One accessor for both paths: a request carries a user jwt; the background loop has none
   // and runs as the service role. Explicit, so a handler can never fall into service access.
@@ -303,6 +312,58 @@ module.exports = function createMeetings(ctx) {
     return { ...meeting, ...patch };
   }
 
+  // ---- sharing: one page a stranger can open, no account ----
+  //
+  // The guest read does NOT go through sbRest-with-a-user-jwt (there is no user) and does
+  // NOT go through sbAdmin (a request handler must never hold the service role). It calls
+  // the share_view SQL function with the ANON key; that function is `security definer`,
+  // enforces expiry in SQL and returns only guest-safe fields. Widening what a guest sees
+  // means editing the migration, not this file.
+  async function shareRead(token) {
+    const out = await sbRest('rpc/share_view', anonKey, { method: 'POST', body: { tok: token } });
+    return out || null;
+  }
+
+  function shareLink(token) { return (APP_ORIGIN || '') + '/s/' + token; }
+
+  // A storage key becomes a URL only if a public base is configured. Returns '' otherwise,
+  // and the page renders an honest "not available" instead of a dead player.
+  function mediaUrl(rec) {
+    if (!rec || !rec.key) return '';
+    if (/^https?:\/\//i.test(rec.key)) return rec.key;
+    if (!MEDIA_BASE) return '';
+    return MEDIA_BASE + '/' + String(rec.key).replace(/^\/+/, '');
+  }
+
+  // Public, unauthenticated. Mounted ahead of the auth gate in server.js.
+  async function handlePublic(req, res, urlPath) {
+    if (!urlPath.startsWith('/api/share/')) return false;
+    if (req.method !== 'GET') { sendJson(res, { error: 'not found' }, 404); return true; }
+    // Own every /api/share/ path, valid token or not. Falling through to the auth gate
+    // would answer a truncated link - a normal copy-paste accident - with "not signed
+    // in", which sends a guest looking for a login that does not exist.
+    const m = urlPath.slice('/api/share/'.length).match(/^[A-Za-z0-9_-]{16,64}$/);
+    if (!m) { sendJson(res, { error: 'This link is no longer available.' }, 404); return true; }
+    try {
+      const data = await shareRead(m[0]);
+      if (!data) {
+        // One answer for "never existed", "revoked" and "expired". A guest learns nothing
+        // about which, so the link cannot be used to probe for valid tokens.
+        sendJson(res, { error: 'This link is no longer available.' }, 404);
+        return true;
+      }
+      const rec = data.recording || null;
+      sendJson(res, {
+        ...data,
+        recording: rec ? { ...rec, url: mediaUrl(rec), key: undefined } : null,
+      });
+    } catch (e) {
+      console.error('[share]', e.message);
+      sendJson(res, { error: 'This link is no longer available.' }, 404);
+    }
+    return true;
+  }
+
   // ---- router ----
   async function handle(req, res, urlPath, user, jwt, seg) {
     if (!urlPath.startsWith('/api/meetings')) return false;
@@ -400,6 +461,46 @@ module.exports = function createMeetings(ctx) {
       return true;
     }
 
+    // create or rotate the share link. Rotating is how you cut off someone who already
+    // has the old URL, so this always mints a fresh token rather than returning the old one.
+    if (seg[3] === 'share' && req.method === 'POST') {
+      const token = newShareToken();
+      const expires = SHARE_TTL_DAYS > 0
+        ? new Date(Date.now() + SHARE_TTL_DAYS * 86400000).toISOString()
+        : null;
+      await sbRest(`meetings?id=eq.${id}`, jwt, {
+        method: 'PATCH', prefer: 'return=minimal',
+        body: { share_token: token, share_expires_at: expires, share_views: 0 },
+      });
+      logActivity(jwt, { category: 'call', action: 'meeting_shared', user_id: user.id, target: id });
+      sendJson(res, { ok: true, token, url: shareLink(token), expires_at: expires, state: 'active' });
+      return true;
+    }
+
+    // revoke. Nulling the token is what makes shareState() read 'none' rather than
+    // 'expired' - the link stops existing instead of looking merely stale.
+    if (seg[3] === 'share' && req.method === 'DELETE') {
+      await sbRest(`meetings?id=eq.${id}`, jwt, {
+        method: 'PATCH', prefer: 'return=minimal',
+        body: { share_token: null, share_expires_at: null },
+      });
+      logActivity(jwt, { category: 'call', action: 'meeting_share_revoked', user_id: user.id, target: id });
+      sendJson(res, { ok: true, state: 'none' });
+      return true;
+    }
+
+    // what the owner sees next to the Share button
+    if (seg[3] === 'share' && req.method === 'GET') {
+      const state = shareState(meeting);
+      sendJson(res, {
+        state,
+        url: state === 'active' ? shareLink(meeting.share_token) : '',
+        expires_at: meeting.share_expires_at || null,
+        views: meeting.share_views || 0,
+      });
+      return true;
+    }
+
     sendJson(res, { error: 'not found' }, 404);
     return true;
   }
@@ -443,7 +544,7 @@ module.exports = function createMeetings(ctx) {
   }
   setInterval(tick, 30000).unref?.();
 
-  return { handle, remember, botMode, platformOf };
+  return { handle, handlePublic, remember, botMode, platformOf };
 };
 
 // Pure helpers, reachable without building the factory. Tested in tests/meetings.test.js.

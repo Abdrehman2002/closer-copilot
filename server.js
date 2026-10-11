@@ -2158,7 +2158,7 @@ const admin = require('./admin')({
 // ---- meeting notetaker (schedule -> prep -> optional bot -> notes) ----
 // admin reads the bot mode off this, so it is created after `admin` and linked back below
 const meetings = require('./meetings')({
-  sbRest, sbAdmin, hasServiceKey: !!SERVICE_KEY, chatOnce, sendJson, readBody,
+  sbRest, sbAdmin, hasServiceKey: !!SERVICE_KEY, chatOnce, sendJson, readBody, anonKey: SUPA_KEY,
   logActivity: (jwt, row) => admin.logActivity(jwt, row),
   ANALYSIS_MODEL, PREP_MODEL,
 });
@@ -2193,6 +2193,31 @@ const server = http.createServer(async (req, res) => {
   });
 
   try {
+    // ---- PUBLIC, NO AUTH: the shared meeting page ----
+    // Mounted ahead of the /api/ auth gate below on purpose - a recipient has no account.
+    // Both routes are read-only and reach the database through the share_view SQL function
+    // on the anon key, which enforces expiry and field selection itself.
+    if (urlPath.startsWith('/api/share/')) {
+      if (await meetings.handlePublic(req, res, urlPath)) return;
+    }
+    if (urlPath.startsWith('/s/')) {
+      // The page is static; it reads its own token out of the path and fetches the JSON.
+      // Never cached, so revoking a link takes effect on the next open.
+      // Lives in views/, NOT public/ - public/ is the React build output and is
+      // gitignored in full, so a page placed there deploys as a 404.
+      return fs.readFile(path.join(__dirname, 'views', 'share.html'), (e, html) => {
+        if (e) { res.writeHead(404); return res.end('not found'); }
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          // A shared recording must not end up in a search index or a referrer log.
+          'X-Robots-Tag': 'noindex, nofollow, noarchive',
+          'Referrer-Policy': 'no-referrer',
+        });
+        res.end(html);
+      });
+    }
+
     if (urlPath === '/api/config' && req.method === 'GET') {
       return sendJson(res, {
         url: SUPA_URL, key: SUPA_KEY,
