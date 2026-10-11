@@ -17,6 +17,8 @@
 // Nothing here silently pretends a bot joined when it didn't — status shows which mode ran.
 'use strict';
 
+const crypto = require('node:crypto');
+
 const RECALL_KEY = process.env.RECALL_API_KEY || '';
 const RECALL_REGION = process.env.RECALL_REGION || 'us-west-2';
 const RECALL_BASE = `https://${RECALL_REGION}.recall.ai/api/v1`;
@@ -31,6 +33,110 @@ const platformOf = (url = '') => {
   if (u.includes('teams.microsoft.') || u.includes('teams.live.')) return 'teams';
   return 'other';
 };
+
+// ------------------------------------------------------------------ pure helpers
+// Hung off module.exports below so the suite can reach them without constructing the
+// factory (which would need a ctx full of live Supabase and OpenAI handles). Everything
+// in this block is a pure function: same input, same output, no clock, no network.
+
+// Meet links only. The self-hosted worker refuses anything else (see bot-worker.js), so a
+// Zoom or Teams invite is not something we can join and must not become an auto_join row.
+const MEET_RE = /https:\/\/meet\.google\.com\/[a-z0-9-]{3,}(?:\?[^\s"'<>]*)?/i;
+
+function meetLinkFrom(event = {}) {
+  const direct = String(event.hangoutLink || '').match(MEET_RE);
+  if (direct) return direct[0];
+
+  const eps = event.conferenceData && event.conferenceData.entryPoints;
+  if (Array.isArray(eps)) {
+    for (const ep of eps) {
+      if (!ep || ep.entryPointType !== 'video') continue;
+      const m = String(ep.uri || '').match(MEET_RE);
+      if (m) return m[0];
+    }
+  }
+
+  // Plenty of invites paste the link into the body or the location field instead.
+  for (const field of [event.location, event.description]) {
+    const m = String(field || '').match(MEET_RE);
+    if (m) return m[0];
+  }
+  return '';
+}
+
+// Google Calendar event -> a row for `meetings`. Returns null for anything we should not
+// join, which is the common case: declined, all-day, no video link, not a Meet link.
+function calendarEventToMeeting(event, opts = {}) {
+  if (!event || typeof event !== 'object') return null;
+  if (event.status === 'cancelled') return null;
+
+  const url = meetLinkFrom(event);
+  if (!url) return null;
+
+  // All-day events carry start.date, never start.dateTime. There is no moment to join.
+  const startMs = Date.parse(String((event.start && event.start.dateTime) || ''));
+  if (!Number.isFinite(startMs)) return null;
+
+  const endMs = Date.parse(String((event.end && event.end.dateTime) || ''));
+  const duration = Number.isFinite(endMs) && endMs > startMs
+    ? Math.round((endMs - startMs) / 60000)
+    : 30;
+
+  const emails = [];
+  for (const a of (Array.isArray(event.attendees) ? event.attendees : [])) {
+    if (!a || a.resource) continue;              // a booked room is not an attendee
+    const e = String(a.email || '').trim().toLowerCase();
+    if (e && !emails.includes(e)) emails.push(e);
+  }
+
+  return {
+    user_id: opts.userId || null,
+    calendar_account_id: opts.calendarAccountId || null,
+    calendar_event_id: String(event.id || '') || null,
+    title: String(event.summary || '').trim() || 'Untitled meeting',
+    meeting_url: url,
+    platform: platformOf(url),
+    starts_at: new Date(startMs).toISOString(),
+    duration_min: duration,
+    attendees_emails: emails,
+    organizer_email: String((event.organizer && event.organizer.email) || '').trim().toLowerCase() || null,
+    auto_join: true,
+    status: 'scheduled',
+  };
+}
+
+// 128 bits, url-safe, 22 characters. Unguessable is the only thing protecting a share link.
+function newShareToken() {
+  return crypto.randomBytes(16).toString('base64url');
+}
+
+// 'none' | 'active' | 'expired'. A null share_token IS the revoked state — see the DELETE
+// handler — so absence and expiry are deliberately two different answers.
+function shareState(meeting = {}, now = Date.now()) {
+  if (!meeting || !meeting.share_token) return 'none';
+  const exp = Date.parse(String(meeting.share_expires_at || ''));
+  if (Number.isFinite(exp) && exp <= now) return 'expired';
+  return 'active';
+}
+
+// recordings.status lifecycle. Both ends are terminal: a finished upload never re-opens,
+// and a failure is kept rather than retried in place, so the row stays an honest record.
+const RECORDING_STATES = Object.freeze(['pending', 'uploading', 'ready', 'failed']);
+const RECORDING_NEXT = Object.freeze({
+  pending: ['uploading', 'failed'],
+  uploading: ['ready', 'failed'],
+  ready: [],
+  failed: [],
+});
+
+function canRecordingTransition(from, to) {
+  if (!RECORDING_STATES.includes(to)) return false;
+  if (from === null || from === undefined || from === '') return to === 'pending';
+  if (!RECORDING_STATES.includes(from)) return false;
+  // A repeated write of the same status is a caller bug, not progress. Check before writing.
+  if (from === to) return false;
+  return RECORDING_NEXT[from].includes(to);
+}
 
 module.exports = function createMeetings(ctx) {
   const { sbRest, sbAdmin, hasServiceKey, chatOnce, sendJson, readBody, logActivity, ANALYSIS_MODEL, PREP_MODEL } = ctx;
@@ -339,3 +445,12 @@ module.exports = function createMeetings(ctx) {
 
   return { handle, remember, botMode, platformOf };
 };
+
+// Pure helpers, reachable without building the factory. Tested in tests/meetings.test.js.
+module.exports.platformOf = platformOf;
+module.exports.meetLinkFrom = meetLinkFrom;
+module.exports.calendarEventToMeeting = calendarEventToMeeting;
+module.exports.newShareToken = newShareToken;
+module.exports.shareState = shareState;
+module.exports.canRecordingTransition = canRecordingTransition;
+module.exports.RECORDING_STATES = RECORDING_STATES;
